@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - OMR System</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: bold;
+        }
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .input-field {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        /* ปุ่มรูปตา */
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            cursor: pointer;
+            color: #666;
+            user-select: none;
+            display: flex;
+            align-items: center;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 10px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .btn-login:hover {
+            background-color: #1976D2;
+        }
+        .error-msg {
+            color: #d32f2f;
+            background: #ffcdd2;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <h2 style="color: #333;">เข้าสู่ระบบ OMR</h2>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="input-group">
+            <label>Username:</label>
+            <input type="text" name="username" class="input-field" autofocus required>
+        </div>
+
+        <div class="input-group">
+            <label>Password:</label>
+            <div class="input-wrapper">
+                <input type="password" name="password" id="passwordInput" class="input-field" required>
+                <span class="toggle-password" onclick="togglePassword()">
+                    <svg id="eyeOpen" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    
+                    <svg id="eyeClosed" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                </span>
+            </div>
+        </div>
+
+        <button type="submit" class="btn-login">Login</button>
+    </form>
+    
+    {% if form.errors %}
+        <div class="error-msg">Username หรือ Password ไม่ถูกต้อง</div>
+    {% endif %}
+</div>
+
+<script>
+    function togglePassword() {
+        var passwordInput = document.getElementById("passwordInput");
+        var eyeOpen = document.getElementById("eyeOpen");
+        var eyeClosed = document.getElementById("eyeClosed");
+
+        if (passwordInput.type === "password") {
+            passwordInput.type = "text";
+            eyeOpen.style.display = "block";
+            eyeClosed.style.display = "none";
+        } else {
+            passwordInput.type = "password";
+            eyeOpen.style.display = "none";
+            eyeClosed.style.display = "block";
+        }
+    }
+</script>
+
+</body>
+</html>

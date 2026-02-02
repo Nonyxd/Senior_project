@@ -1,0 +1,175 @@
+{% load grading_extras %}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<style>
+    .grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 15px; }
+    .question-item { background: #f8f9fa; padding: 5px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
+    .btn-save { width: 100%; max-width: 300px; padding: 12px; background-color: #ff9800; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+    .btn-save:hover { background-color: #e68900; }
+    .btn-back { text-decoration: none; background-color: #ccc; color: black; padding: 12px 20px; border-radius: 5px; font-size: 16px; display: inline-block; margin-right: 10px; }
+    .alert-box { background-color: #f8d7da; color: #721c24; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+    .form-group { margin-bottom: 20px; }
+    label { font-weight: bold; display: block; margin-bottom: 5px; }
+    input, select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
+    
+    /* Input Time */
+    input.time-picker { background-color: #fff; cursor: pointer; }
+</style>
+
+<div style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: sans-serif;">
+    <h1 style="text-align: center;">แก้ไขเฉลยข้อสอบ</h1>
+    
+    {% if error %}
+    <div class="alert-box"><strong>ข้อผิดพลาด:</strong> {{ error }}</div>
+    {% endif %}
+
+    <div style="text-align: center; margin-bottom: 30px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa;">
+        <h3 style="margin-top: 0; color: #555;">รูปเฉลยปัจจุบัน (Current Preview)</h3>
+        {% if exam.key_image %}
+            <img src="{{ exam.key_image.url }}" style="max-width: 100%; height: auto; border: 1px solid #ccc; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            <p style="font-size: 12px; color: #666; margin-top: 5px;">* นี่คือรูปที่ใช้อยู่ในปัจจุบัน หากคุณกดบันทึก ระบบจะสร้างรูปใหม่ทับรูปนี้</p>
+        {% else %}
+            <p style="color: #999;">ไม่พบรูปเฉลย</p>
+        {% endif %}
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-group">
+            <label>ชื่อวิชา:</label>
+            <input type="text" name="name" value="{{ exam.name }}" required maxlength="100">
+        </div>
+
+        <div class="form-group" style="background: #fff3e0; padding: 15px; border-radius: 8px; border: 1px solid #ffe0b2;">
+            <label style="color: #ef6c00;">อัปเดตรายชื่อนักเรียนจาก (Optional):</label>
+            <select name="subject_id">
+                <option value="">-- ไม่เปลี่ยนแปลง (ใช้รายชื่อเดิม) --</option>
+                {% for sub in subjects %}
+                    <option value="{{ sub.id }}">{{ sub.code }} {{ sub.name }} ({{ sub.students.count }} คน)</option>
+                {% endfor %}
+            </select>
+            <small style="color: #d84315;">* คำเตือน: หากเลือกใหม่ รายชื่อนักเรียนชุดเดิมของการสอบนี้จะถูกลบและแทนที่ด้วยวิชาที่เลือก</small>
+        </div>
+
+        <div style="display: flex; gap: 20px;">
+            <div class="form-group" style="flex: 1;">
+                <label>รหัสวิชา:</label>
+                <input type="text" name="course_code" value="{{ exam.course_code }}">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>ห้องสอบ:</label>
+                <input type="text" name="room" value="{{ exam.room }}">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px;">
+            <div class="form-group" style="flex: 1;">
+                <label>วันที่สอบ:</label>
+                <input type="date" name="exam_date" value="{{ exam.exam_date|date:'Y-m-d' }}">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>เวลาเริ่ม (24 ชม.):</label>
+                <input type="text" class="time-picker" name="start_time" value="{{ exam.start_time|time:'H:i' }}">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>เวลาจบ (24 ชม.):</label>
+                <input type="text" class="time-picker" name="end_time" value="{{ exam.end_time|time:'H:i' }}">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label style="color: #d32f2f;">จำนวนข้อสอบ (Limit):</label>
+            <input type="number" name="total_questions" value="{{ exam.total_questions }}" min="1" max="100" required>
+        </div>
+
+        <hr>
+
+        <div id="manualInput">
+            <h3 style="border-bottom: 2px solid #ddd; padding-bottom: 10px;">แก้ไขคำตอบ (Grid)</h3>
+            <div class="grid-container">
+                {% for i in range_100 %}
+                {% with old_val=exam.answer_key|get_item:i %}
+                <div class="question-item">
+                    <label style="font-size: 12px; display: block;">{{ i }}</label>
+                    <select name="q_{{ i }}" style="width: 100%;">
+                        <option value="">-</option>
+                        <option value="a" {% if old_val == 'a' %}selected{% endif %}>A</option>
+                        <option value="b" {% if old_val == 'b' %}selected{% endif %}>B</option>
+                        <option value="c" {% if old_val == 'c' %}selected{% endif %}>C</option>
+                        <option value="d" {% if old_val == 'd' %}selected{% endif %}>D</option>
+                        <option value="e" {% if old_val == 'e' %}selected{% endif %}>E</option>
+                    </select>
+                </div>
+                {% endwith %}
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; display: flex; gap: 10px; justify-content: center;">
+            <a href="{% url 'index' %}" class="btn-back">ยกเลิก</a>
+            <button type="submit" class="btn-save">บันทึกการแก้ไข</button>
+        </div>
+    </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+    // 1. ตั้งค่าตัวเลือกเวลา (Flatpickr)
+    flatpickr(".time-picker", {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+    });
+
+    // 2. ฟังก์ชันซ่อน/แสดง ตารางเฉลย (Manual/Auto)
+    function toggleManual() {
+        var type = document.getElementById("keyType").value;
+        var manualDiv = document.getElementById("manualInput");
+        if (manualDiv) {
+            manualDiv.style.display = (type === "manual") ? "block" : "none";
+        }
+    }
+
+    // 3. ฟังก์ชันซ่อนข้อสอบตาม Limit (เช่น พิมพ์ 10 ก็โชว์แค่ 10 ข้อ)
+    function updateQuestionLimit() {
+        var limitInput = document.querySelector('input[name="total_questions"]');
+        if (!limitInput) return;
+
+        var limit = parseInt(limitInput.value) || 100;
+        var items = document.querySelectorAll('.question-item'); // ดึงกล่องข้อสอบทั้งหมด
+        
+        items.forEach(function(item, index) {
+            // index เริ่มที่ 0 (คือข้อ 1)
+            // ถ้า index น้อยกว่า limit ให้แสดง, ถ้ามากกว่าให้ซ่อน
+            if (index < limit) {
+                item.style.display = 'block';
+            } else {
+                item.style.display = 'none';
+                
+                // (Optional) เคลียร์ค่าของข้อที่ถูกซ่อน เพื่อป้องกันการส่งค่าขยะไป
+                var select = item.querySelector('select');
+                if(select) select.value = ""; 
+            }
+        });
+    }
+
+    // --- เริ่มทำงานเมื่อโหลดหน้าเสร็จ ---
+    window.onload = function() {
+        // เรียกใช้ครั้งแรก
+        toggleManual();
+        updateQuestionLimit();
+
+        // เพิ่ม Event Listener ให้ช่อง Limit
+        // เมื่อมีการพิมพ์ หรือ เปลี่ยนตัวเลข ให้เรียกฟังก์ชัน updateQuestionLimit ทันที
+        var limitInput = document.querySelector('input[name="total_questions"]');
+        if(limitInput) {
+            limitInput.addEventListener('input', updateQuestionLimit);
+            limitInput.addEventListener('change', updateQuestionLimit);
+        }
+    }
+</script>
+

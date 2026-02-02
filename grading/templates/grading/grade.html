@@ -1,0 +1,105 @@
+<div class="container" style="padding: 20px; font-family: sans-serif;">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h1 style="margin: 0;">{{ exam.name }}</h1>
+            <p style="color: #666; margin: 5px 0 0 0;">รายการผลสอบทั้งหมด</p>
+        </div>
+        <a href="{% url 'index' %}" style="text-decoration: none; background: #eee; color: #333; padding: 8px 15px; border-radius: 5px; border: 1px solid #ddd; font-weight: bold;">
+            &larr; Back to Dashboard
+        </a>
+    </div>
+    
+    {% if messages %}
+        {% for message in messages %}
+            <div style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; align-items: center;">
+                <span style="margin-right: 10px;">&#10004;</span> {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+        
+        <div style="flex: 2; min-width: 300px;">
+            <h3 style="border-bottom: 2px solid #2196F3; padding-bottom: 10px; margin-top: 0; color: #333;">
+                Results ({{ results.count }} คน)
+            </h3>
+            
+            <table border="1" style="width:100%; border-collapse: collapse; border-color: #eee; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                <thead>
+                    <tr style="background:#f8f9fa; color: #555;">
+                        <th style="padding: 12px; text-align: left;">Student ID (Click to View)</th>
+                        <th style="padding: 12px; text-align: center;">Score</th>
+                        <th style="padding: 12px; text-align: center;">Timestamp</th>
+                        <th style="padding: 12px; text-align: center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for res in results %}
+                    <tr style="border-bottom: 1px solid #eee; transition: background 0.2s;" onmouseover="this.style.background='#f9f9f9'" onmouseout="this.style.background='white'">
+                        
+                        <td style="padding: 12px;">
+                            {% if res.graded_image %}
+                                <a href="/media/{{ res.graded_image }}" 
+                                   title="คลิกเพื่อตรวจสอบรูปกระดาษคำตอบ"
+                                   style="text-decoration: none; color: #2196F3; font-weight: bold; display: flex; align-items: center; gap: 5px;">
+                                   📄 {{ res.student_id }}
+                                </a>
+                            {% else %}
+                                {{ res.student_id }} <span style="font-size: 12px; color: orange;">(Processing)</span>
+                            {% endif %}
+                        </td>
+
+                        <td style="padding: 12px; text-align: center; font-size: 16px; font-weight: bold; color: #333;">
+                            {{ res.score }}
+                        </td>
+
+                        <td style="padding: 12px; text-align: center; color: #888; font-size: 13px;">
+                            {{ res.timestamp|date:"d M H:i" }}
+                        </td>
+                        
+                        <td style="padding: 12px; text-align: center;">
+                            <a href="{% url 'delete_result' res.id %}" 
+                               title="ลบผลสอบนี้"
+                               style="color: #e57373; text-decoration: none; font-size: 18px; padding: 5px; transition: color 0.2s;">
+                               &#10006;
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; padding: 40px; color: #999;">
+                            <div style="font-size: 40px; margin-bottom: 10px;">📂</div>
+                            ยังไม่มีข้อมูลการตรวจ <br> กรุณาอัปโหลดไฟล์ที่ด้านขวา
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div style="flex: 1; min-width: 250px;">
+            <div style="background: #fff; padding: 25px; border-radius: 8px; border: 1px solid #ddd; position: sticky; top: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+                <h3 style="margin-top: 0; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                    Upload Answer Sheets
+                </h3>
+                
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    
+                    <div style="margin-bottom: 20px; text-align: center; border: 2px dashed #ccc; padding: 30px; border-radius: 8px; background: #fafafa;">
+                        <span style="font-size: 24px;">📷</span>
+                        <p style="margin: 10px 0; color: #666; font-size: 14px;">เลือกไฟล์รูปภาพ (.jpg, .png)</p>
+                        <input type="file" name="image" multiple required 
+                               style="width: 100%; font-size: 14px;">
+                    </div>
+
+                    <button type="submit" style="width: 100%; background: #2196F3; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; transition: background 0.3s; box-shadow: 0 4px 6px rgba(33, 150, 243, 0.2);">
+                        Upload & Grade Now
+                    </button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>

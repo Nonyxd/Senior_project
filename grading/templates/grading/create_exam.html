@@ -1,0 +1,166 @@
+{% load grading_extras %}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<style>
+    .grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 15px; }
+    .question-item { background: #f8f9fa; padding: 5px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
+    .manual-section { display: none; }
+    .btn-save { width: 100%; max-width: 300px; padding: 12px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; transition: 0.3s; }
+    .btn-save:hover { background-color: #45a049; }
+    .btn-back { text-decoration: none; background-color: #ccc; color: black; padding: 12px 20px; border-radius: 5px; font-size: 16px; display: inline-block; margin-right: 10px; border: none; cursor: pointer; }
+    .btn-back:hover { background-color: #bbb; }
+    .alert-box { background-color: #f8d7da; color: #721c24; padding: 15px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 5px; }
+    .form-group { margin-bottom: 20px; }
+    label { font-weight: bold; display: block; margin-bottom: 5px; color: #333; }
+    input, select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+    hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
+    
+    /* ปรับแต่ง input เวลาให้ดูดีขึ้น */
+    input.time-picker { background-color: #fff; cursor: pointer; }
+</style>
+
+<div style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: sans-serif;">
+    <h1 style="text-align: center;">สร้างเฉลยข้อสอบใหม่</h1>
+    
+    {% if error %}
+    <div class="alert-box"><strong>ข้อผิดพลาด:</strong> {{ error }}</div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-group" style="background: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #90caf9;">
+            <label style="color: #1565c0;">เลือกวิชาที่มีในระบบ (เพื่อดึงรายชื่อนักเรียน):</label>
+            <select name="subject_id" id="subjectSelect" onchange="autoFillSubjectInfo()">
+                <option value="">-- สร้างวิชาใหม่ (กรอกเอง) --</option>
+                {% for sub in subjects %}
+                    <option value="{{ sub.id }}" data-name="{{ sub.name }}" data-code="{{ sub.code }}">
+                        {{ sub.code }} - {{ sub.name }} (มีนักเรียน {{ sub.students.count }} คน)
+                    </option>
+                {% endfor %}
+            </select>
+            <small style="color: #555;">* เมื่อเลือกวิชา ระบบจะดึงรายชื่อนักเรียนมาเตรียมไว้สำหรับการ Print กระดาษคำตอบ</small>
+        </div>
+
+        <div class="form-group">
+            <label>ชื่อการสอบ (แก้ไขได้):</label>
+            <input type="text" name="name" id="examNameInput" 
+                   value="{{ saved_name|default:'' }}" 
+                   required maxlength="100" 
+                   oninput="updateCharCount()"
+                   placeholder="เช่น: สอบกลางภาค 2026">
+            <div style="text-align: right; font-size: 12px; color: #666; margin-top: 2px;">
+                <span id="charCount">0</span>/100
+            </div>
+        </div>
+
+        <hr>
+
+        <div style="display: flex; gap: 20px;">
+            <div class="form-group" style="flex: 1;">
+                <label>รหัสวิชา:</label>
+                <input type="text" name="course_code" id="courseCodeInput" value="{{ saved_code|default:'' }}">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>ห้องสอบ:</label>
+                <input type="text" name="room" value="{{ saved_room|default:'' }}">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px;">
+            <div class="form-group" style="flex: 1;">
+                <label>วันที่สอบ:</label>
+                <input type="date" name="exam_date" value="{{ saved_date|default:'' }}">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>เวลาเริ่ม (24 ชม.):</label>
+                <input type="text" class="time-picker" name="start_time" value="{{ saved_start|default:'' }}" placeholder="เลือกเวลา...">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>เวลาจบ (24 ชม.):</label>
+                <input type="text" class="time-picker" name="end_time" value="{{ saved_end|default:'' }}" placeholder="เลือกเวลา...">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label style="color: #d32f2f;">จำนวนข้อสอบ (Limit):</label>
+            <input type="number" name="total_questions" 
+                   value="{{ saved_total|default:100 }}" 
+                   min="1" max="100" required>
+            <small style="color: #666;">ระบบจะขีดเส้นแดงกั้นข้อสุดท้ายให้อัตโนมัติ</small>
+        </div>
+
+        <hr>
+
+        <div class="form-group">
+            <label>รูปแบบเฉลย:</label>
+            <select name="key_type" id="keyType" onchange="toggleManual()">
+                <option value="sequential">แบบอัตโนมัติ (A:1-20, B:21-40...)</option>
+                <option value="manual">กำหนดเอง (เลือกทีละข้อ)</option>
+            </select>
+        </div>
+
+        <div id="manualInput" class="manual-section">
+            <h3 style="border-bottom: 2px solid #ddd; padding-bottom: 10px;">เลือกคำตอบ</h3>
+            <div class="grid-container">
+                {% for i in range_100 %}
+                <div class="question-item">
+                    <label style="font-size: 12px; display: block;">{{ i }}</label>
+                    <select name="q_{{ i }}" style="width: 100%;">
+                        <option value="">-</option>
+                        <option value="a">A</option>
+                        <option value="b">B</option>
+                        <option value="c">C</option>
+                        <option value="d">D</option>
+                        <option value="e">E</option>
+                    </select>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; display: flex; justify-content: center;">
+            <a href="{% url 'index' %}" class="btn-back">ย้อนกลับ</a>
+            <button type="submit" class="btn-save">บันทึกและตรวจสอบ</button>
+        </div>
+    </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+    // เปิดใช้งานตัวเลือกเวลาแบบ 24 ชั่วโมง
+    flatpickr(".time-picker", {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+    });
+
+    function autoFillSubjectInfo() {
+        var select = document.getElementById("subjectSelect");
+        var selectedOption = select.options[select.selectedIndex];
+        var nameInput = document.getElementById("examNameInput");
+        var codeInput = document.getElementById("courseCodeInput");
+        
+        var subjectName = selectedOption.getAttribute("data-name");
+        var subjectCode = selectedOption.getAttribute("data-code");
+        
+        if (subjectName) nameInput.value = subjectName;
+        if (subjectCode) codeInput.value = subjectCode;
+    }
+
+    function toggleManual() {
+        var type = document.getElementById("keyType").value;
+        document.getElementById("manualInput").style.display = (type === "manual") ? "block" : "none";
+    }
+
+    function updateCharCount() {
+        var input = document.getElementById("examNameInput");
+        var span = document.getElementById("charCount");
+        span.innerText = input.value.length;
+        span.style.color = (input.value.length >= 100) ? "red" : "#666";
+    }
+
+    window.onload = function() { toggleManual(); updateCharCount(); }
+</script>

@@ -1,0 +1,52 @@
+<style>
+    /* CSS ปุ่มกดให้เท่ากัน */
+    .btn-action {
+        flex: 1; /* ยืดให้เต็มพื้นที่เท่าๆ กัน */
+        min-width: 150px;
+        max-width: 200px;
+        padding: 12px 20px;
+        text-decoration: none;
+        border-radius: 5px;
+        text-align: center;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        border: none;
+        display: inline-block;
+    }
+    .btn-cancel {
+        background-color: #f44336;
+        color: white;
+    }
+    .btn-confirm {
+        background-color: #4CAF50;
+        color: white;
+    }
+    .btn-cancel:hover { background-color: #d32f2f; }
+    .btn-confirm:hover { background-color: #45a049; }
+</style>
+
+<div style="text-align: center; padding: 20px; font-family: sans-serif;">
+    <h1>ยืนยันเฉลยข้อสอบ</h1>
+    <h2 style="color: #555;">วิชา: {{ name }}</h2>
+    
+    <div style="margin: 20px auto; display: inline-block;">
+        <img src="/media/{{ image_url }}" 
+             style="max-width: 600px; width: 100%; border: 3px solid #4CAF50; box-shadow: 0 5px 15px rgba(0,0,0,0.3); border-radius: 8px;">
+        <p style="margin-top: 10px; color: #666;">กรุณาตรวจสอบตำแหน่งกากบาท (X) สีเขียวว่าถูกต้องหรือไม่</p>
+    </div>
+
+    <div style="display: flex; justify-content: center; gap: 20px; margin-top: 20px;">
+        
+        <a href="{% url 'save_exam_confirm' %}" class="btn-action btn-cancel">
+           ยกเลิก / แก้ไขใหม่
+        </a>
+
+        <form action="{% url 'save_exam_confirm' %}" method="POST" style="margin: 0; display: contents;">
+            {% csrf_token %}
+            <button type="submit" class="btn-action btn-confirm">
+                ยืนยัน (ถูกต้อง)
+            </button>
+        </form>
+    </div>
+</div>

@@ -1,0 +1,17 @@
+<div style="text-align: center; padding: 50px;">
+    <h1 style="color: #d9534f;">Delete Exam?</h1>
+    <h3>Are you sure you want to delete: <b>"{{ exam.name }}"</b>?</h3>
+    <p>This will also delete all student results associated with this exam.</p>
+    <p style="color: red; font-weight: bold;">This action cannot be undone!</p>
+
+    <br>
+    
+    <form method="POST">
+        {% csrf_token %}
+        <a href="{% url 'index' %}" style="background: #ccc; padding: 10px 20px; text-decoration: none; color: black; border-radius: 5px;">Cancel</a>
+        
+        <button type="submit" style="background: #d9534f; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">
+            Yes, Delete it
+        </button>
+    </form>
+</div>
