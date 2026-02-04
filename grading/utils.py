@@ -1,8 +1,26 @@
 import cv2
 import numpy as np
-import json
 import os
 from django.conf import settings
+from ultralytics import YOLO
+
+# ==========================================
+# 0. Global Configuration
+# ==========================================
+YOLO_MODEL = None
+
+def get_yolo_model():
+    """ โหลดโมเดลครั้งเดียว ใช้ยาวๆ """
+    global YOLO_MODEL
+    if YOLO_MODEL is None:
+        model_path = os.path.join(settings.BASE_DIR, 'grading/models/best_new.pt')
+        try:
+            YOLO_MODEL = YOLO(model_path)
+            print(f"✅ Loaded YOLO: {model_path}")
+        except Exception as e:
+            print(f"❌ Error loading YOLO: {e}")
+            return None
+    return YOLO_MODEL
 
 # ==========================================
 # 1. Image Processing Helpers
@@ -10,11 +28,11 @@ from django.conf import settings
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
+    rect[0] = pts[np.argmin(s)]      # TL
+    rect[2] = pts[np.argmax(s)]      # BR
     diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
+    rect[1] = pts[np.argmin(diff)]   # TR
+    rect[3] = pts[np.argmax(diff)]   # BL
     return rect
 
 def four_point_transform(image, pts):
@@ -39,8 +57,27 @@ def auto_detect_paper(img):
             return approx.reshape(4, 2)
     return None
 
+def calculate_overlap(boxA, boxB):
+    """ คำนวณพื้นที่ซ้อนทับ (IoA) """
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    if boxAArea == 0: return 0
+    return interArea / float(boxAArea)
+
+def get_pixel_count(thresh_img, box):
+    """ นับจุดขาว (Pixel) ในกล่อง (ใช้เฉพาะรหัสนิสิต) """
+    x1, y1, x2, y2 = box
+    margin = 4
+    if x2-x1 <= 2*margin or y2-y1 <= 2*margin: return 0
+    roi = thresh_img[y1+margin:y2-margin, x1+margin:x2-margin]
+    return cv2.countNonZero(roi)
+
 # ==========================================
-# 2. GridMapper Class (สำหรับคำนวณพิกัดบน rectified_output.jpg)
+# 2. GridMapper
 # ==========================================
 class GridMapper:
     def __init__(self, img_w, img_h):
@@ -49,7 +86,6 @@ class GridMapper:
         self.box_h = 0.024    
         self.step_x = 0.0414; self.step_y = 0.0253
         
-        # ตำแหน่งเริ่มต้นของแต่ละคอลัมน์ (ปรับตาม Template จริง)
         self.c1_x, self.c1_y = 0.133, 0.303
         self.c2_x, self.c2_y = 0.4657, 0.0250
         self.c3_x, self.c3_y = 0.7950, 0.0250
@@ -59,22 +95,20 @@ class GridMapper:
         self.id_box_w, self.id_box_h = 0.028, 0.020
 
     def get_question_coords(self, q_num):
-        # กำหนดคอลัมน์และแถวตามเลขข้อ
         if 1 <= q_num <= 26: sx, sy, r = self.c1_x, self.c1_y, q_num-1
         elif 27 <= q_num <= 63: sx, sy, r = self.c2_x, self.c2_y, q_num-27
         elif 64 <= q_num <= 100: sx, sy, r = self.c3_x, self.c3_y, q_num-64
         else: return {}
         
-        coords = {}
         base_x = int(sx * self.w)
         base_y = int((sy + (r * self.step_y)) * self.h)
         step_x = int(self.step_x * self.w)
         bw, bh = int(self.box_w * self.w), int(self.box_h * self.h)
-
+        coords = {}
         for i, lbl in enumerate(['a','b','c','d','e']):
             cx = base_x + (i * step_x)
             cy = base_y
-            coords[lbl] = (cx - bw//2, cy - bh//2, cx + bw//2, cy + bh//2)
+            coords[lbl] = [cx - bw//2, cy - bh//2, cx + bw//2, cy + bh//2]
         return coords
 
     def get_student_id_coords(self):
@@ -85,63 +119,104 @@ class GridMapper:
                 bx = int((self.id_start_x + (col * self.id_step_x)) * self.w)
                 by = int((self.id_start_y + (digit * self.id_step_y)) * self.h)
                 bw, bh = int(self.id_box_w * self.w), int(self.id_box_h * self.h)
-                id_grid[col][digit] = (bx - bw//2, by - bh//2, bx + bw//2, by + bh//2)
+                id_grid[col][digit] = [bx - bw//2, by - bh//2, bx + bw//2, by + bh//2]
         return id_grid
 
 # ==========================================
-# 3. ROBUST SCANNING (Center Crop)
+# 3. SELECTIVE SCANNER (แยก Logic ชัดเจน)
 # ==========================================
-def get_center_roi_pixel_count(thresh_img, x1, y1, x2, y2):
-    w = x2 - x1; h = y2 - y1
-    crop_x = int(w * 0.30); crop_y = int(h * 0.30)
-    if w - 2*crop_x <= 0 or h - 2*crop_y <= 0: return 0
-    roi = thresh_img[y1+crop_y : y2-crop_y, x1+crop_x : x2-crop_x]
-    return cv2.countNonZero(roi)
+def scan_selective(image, mapper):
+    """
+    - รหัสนิสิต: ใช้ Pixel Count + YOLO (Hybrid)
+    - ข้อสอบ: ใช้ YOLO Only (ไม่นับ Pixel)
+    """
+    # 1. เตรียมภาพขาวดำ (สำหรับ Pixel Count ของรหัส)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY_INV, 51, 25)
+    
+    # 2. เตรียม YOLO (สำหรับทั้งคู่)
+    model = get_yolo_model()
+    yolo_boxes = []
+    if model:
+        # conf=0.10: ยอมรับความมั่นใจต่ำ (เดี๋ยวไปกรอง Overlap เอา)
+        results = model.predict(image, conf=0.10, iou=0.45, imgsz=1024, verbose=False)[0]
+        for box in results.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            yolo_boxes.append({
+                'box': [int(x1), int(y1), int(x2), int(y2)], 
+                'conf': float(box.conf[0])
+            })
 
-def robust_scan_answers(thresh_img, mapper):
+    # ================= [PART A: STUDENT ID] =================
+    # ใช้ HYBRID: Pixel Count นำ แล้ว YOLO ช่วยเสริม
+    # เพราะรหัสนิสิตต้องดำเข้ม และเราอยากได้ความแม่นยำสูงสุด
+    student_id_list = []
+    id_grid = mapper.get_student_id_coords()
+    ID_PIXEL_THRESH = 150 
+    
+    for col in range(10):
+        found_digit = "?"
+        max_score = 0 
+        
+        for digit in range(10):
+            grid_box = id_grid[col][digit]
+            
+            # 1. เช็ค Pixel (สำคัญมากสำหรับ ID)
+            pixels = get_pixel_count(thresh, grid_box)
+            
+            # 2. เช็ค YOLO (เสริม)
+            yolo_hit = False
+            for ybox in yolo_boxes:
+                if calculate_overlap(grid_box, ybox['box']) > 0.15:
+                    yolo_hit = True
+                    break
+            
+            # Logic: ถ้าดำเข้ม หรือ AI เจอ ก็นับคะแนน
+            score = 0
+            if pixels > ID_PIXEL_THRESH: score += 100
+            if yolo_hit: score += 50
+            
+            if score > 0 and score > max_score:
+                max_score = score
+                found_digit = str(digit)
+                
+        student_id_list.append(found_digit)
+
+    # ================= [PART B: EXAM ANSWERS] =================
+    # ใช้ YOLO ONLY: ไม่นับ Pixel เลย!
+    # เพื่อแก้ปัญหา Grid เบี้ยวไปโดนเส้นตาราง หรือตัวหนังสือ a,b,c
     detected_answers = {}
+    
     for q in range(1, 101):
         coords = mapper.get_question_coords(q)
-        choice_pixels = {}
-        for ch, (x1, y1, x2, y2) in coords.items():
-            choice_pixels[ch] = get_center_roi_pixel_count(thresh_img, x1, y1, x2, y2)
-
-        sorted_choices = sorted(choice_pixels.items(), key=lambda x: x[1], reverse=True)
-        best_ch, max_val = sorted_choices[0]
+        if not coords: continue
         
-        if max_val < 30: 
+        found_choices = []
+        for ch, grid_box in coords.items():
+            
+            # เช็คแค่ว่า "มีกล่อง YOLO มาทับช่องนี้ไหม"
+            yolo_conf = 0.0
+            is_found = False
+            
+            for ybox in yolo_boxes:
+                # ถ้าทับกันเกิน 15% นับว่าเจอเลย
+                if calculate_overlap(grid_box, ybox['box']) > 0.15:
+                    is_found = True
+                    yolo_conf = ybox['conf']
+                    break
+            
+            if is_found:
+                found_choices.append({'choice': ch, 'conf': yolo_conf})
+        
+        if not found_choices:
             detected_answers[q] = []
-            continue
+        else:
+            # เรียงตามความมั่นใจของ YOLO
+            found_choices.sort(key=lambda x: x['conf'], reverse=True)
+            detected_answers[q] = sorted([item['choice'] for item in found_choices])
 
-        picked = [best_ch]
-        for i in range(1, 5):
-            ch_next, val_next = sorted_choices[i]
-            if val_next > max_val * 0.85: 
-                picked.append(ch_next)
-        detected_answers[q] = sorted(picked)
-    return detected_answers
-
-def robust_scan_student_id(thresh_img, mapper):
-    id_grid = mapper.get_student_id_coords()
-    result_list = []
-    for col in range(10):
-        digit_pixels = {}
-        for digit in range(10):
-            x1, y1, x2, y2 = id_grid[col][digit]
-            digit_pixels[digit] = get_center_roi_pixel_count(thresh_img, x1, y1, x2, y2)
-        sorted_digits = sorted(digit_pixels.items(), key=lambda x: x[1], reverse=True)
-        best_d, max_val = sorted_digits[0]
-        
-        if max_val < 30:
-            result_list.append("?")
-            continue
-        picked = [str(best_d)]
-        second_d, second_val = sorted_digits[1]
-        if second_val > max_val * 0.85:
-            picked.append(str(second_d))
-        if len(picked) > 1: result_list.append(f"[{','.join(picked)}]")
-        else: result_list.append(picked[0])
-    return result_list
+    return student_id_list, detected_answers
 
 # ==========================================
 # 4. Grading Logic
@@ -161,8 +236,10 @@ def grade_exam_logic(student_ans, correct_key):
         else: results[q] = "WRONG"
     return score, results
 
-def draw_result_on_image(img, mapper, stu_ans, key, results):
+def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
     vis = img.copy()
+    
+    # วาดเฉลยข้อสอบ
     for q in range(1, 101):
         coords = mapper.get_question_coords(q)
         stu_list = stu_ans.get(q, [])
@@ -170,132 +247,80 @@ def draw_result_on_image(img, mapper, stu_ans, key, results):
         cor_list = key.get(str(q), [])
         cor_str = cor_list[0] if cor_list else None
         
-        for ch, (x1, y1, x2, y2) in coords.items():
-            color = None
+        for ch, box in coords.items():
             if ch in stu_list:
                 if status == "CORRECT": color = (0, 255, 0)
                 elif status == "DOUBLE": color = (0, 255, 255)
                 else: color = (0, 0, 255)
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+                cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), color, 2)
             if status in ["WRONG", "EMPTY", "DOUBLE"] and ch == cor_str:
-                cv2.line(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.line(vis, (x1, y2), (x2, y1), (0, 255, 0), 2)
+                cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 0), 2)
+                
+    # วาดรหัสนิสิต
+    id_grid = mapper.get_student_id_coords()
+    for col, digit_str in enumerate(student_id_list):
+        if digit_str != "?":
+            digit = int(digit_str)
+            box = id_grid[col][digit]
+            cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), (255, 0, 0), 2)
+
     return vis
 
-# ==========================================
-# 5. GENERATE KEY IMAGE (ใช้ rectified_output.jpg เป็นฐาน)
-# ==========================================
 def generate_key_image(answer_key, output_filename, total_questions=100):
-    """
-    สร้างภาพเฉลย Preview โดยใช้รูป rectified_output.jpg
-    - วาดกากบาทเฉลย (สีเขียว)
-    - วาดเส้นแดงกั้นข้อสุดท้าย (ตาม total_questions)
-    """
-    # 1. โหลดรูป Template
     template_path = os.path.join(settings.MEDIA_ROOT, 'rectified_output.jpg')
-    
-    if not os.path.exists(template_path):
-        print(f"Error: Template not found at {template_path}")
-        return None 
-
+    if not os.path.exists(template_path): return None 
     img = cv2.imread(template_path)
-    if img is None:
-        print("Error: Cannot read template image.")
-        return None
-
+    if img is None: return None
     mapper = GridMapper(img.shape[1], img.shape[0])
-    
-    # 2. เริ่มวาดบนรูป
     vis = img.copy()
-    
-    # ทำให้ภาพจางลงเล็กน้อยเพื่อให้เห็นรอยปากกาชัดขึ้น (Optional)
-    # overlay = vis.copy()
-    # cv2.addWeighted(overlay, 0.3, vis, 0.7, 0, vis)
-
     for q in range(1, 101):
         coords = mapper.get_question_coords(q)
         if not coords: continue
-
         ans_list = answer_key.get(str(q), [])
-        
-        # วาดเฉลย (กากบาทสีเขียว)
-        for ch, (x1, y1, x2, y2) in coords.items():
+        for ch, box in coords.items():
             if ch in ans_list:
-                cv2.line(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.line(vis, (x1, y2), (x2, y1), (0, 255, 0), 2)
-
-        # 3. วาดเส้นแดงกั้นข้อ (Limit)
-        if q == total_questions and total_questions < 100:
-            # ใช้พิกัดของตัวเลือก 'a' และ 'e' เพื่อหาความกว้างของข้อ
-            box_a = coords['a']
-            box_e = coords['e']
-            
-            start_x = box_a[0] - 20 # ถอยหลังไปนิดหน่อย
-            end_x = box_e[2] + 20   # เลยไปนิดหน่อย
-            line_y = box_a[3] + 10  # ลงมาจากขอบล่าง 10px
-            
-            # ขีดเส้นแดง
-            cv2.line(vis, (start_x, line_y), (end_x, line_y), (0, 0, 255), 3) # สีแดง (BGR: 0,0,255)
-            
-            # เขียนข้อความ * END * สีแดง
-            cv2.putText(vis, "* END *", (start_x + 50, line_y + 25), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
-    # 4. บันทึกรูป
+                cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 0), 2)
+        if q == total_questions:
+            box_a = coords['a']; box_e = coords['e']
+            cv2.line(vis, (box_a[0]-20, box_a[3]+10), (box_e[2]+20, box_a[3]+10), (0,0,255), 3)
+            cv2.putText(vis, "* END *", (box_a[0]+50, box_a[3]+35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
     save_dir = os.path.join(settings.MEDIA_ROOT, 'keys')
     os.makedirs(save_dir, exist_ok=True)
-    
     full_save_path = os.path.join(save_dir, output_filename)
     cv2.imwrite(full_save_path, vis)
-    
-    # Return path relative to MEDIA_ROOT
     return f'keys/{output_filename}'
 
 # ==========================================
-# 6. Main Process Function (Called by Django View)
+# 5. Main Process
 # ==========================================
 def process_omr(image_path, answer_key):
-    """
-    ฟังก์ชันหลักที่ Django จะเรียกใช้เพื่อตรวจข้อสอบ
-    """
     img = cv2.imread(image_path)
     if img is None: return None, "Cannot read image"
     
     points = auto_detect_paper(img)
     if points is None: return None, "Cannot detect paper corners"
-    
     warped = four_point_transform(img, points)
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    
-    # ใช้ Threshold แบบ Robust (C=25) สำหรับภาพมืด
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                   cv2.THRESH_BINARY_INV, 51, 25)
     
     mapper = GridMapper(warped.shape[1], warped.shape[0])
     
-    # Scan
-    stu_id_list = robust_scan_student_id(thresh, mapper)
-    stu_ans = robust_scan_answers(thresh, mapper)
+    # 🔥 SELECTIVE SCAN:
+    # - ID: Hybrid
+    # - Ans: YOLO Only
+    stu_id_list, stu_ans = scan_selective(warped, mapper)
     
-    # Grade
     score, results = grade_exam_logic(stu_ans, answer_key)
+    result_img = draw_result_on_image(warped, mapper, stu_ans, answer_key, results, stu_id_list)
     
-    # Draw Result Image
-    result_img = draw_result_on_image(warped, mapper, stu_ans, answer_key, results)
-    
-    # Save Graded Image
-    # สร้างชื่อไฟล์ใหม่ เช่น graded_S__4702211.jpg
     filename = os.path.basename(image_path)
     graded_filename = f"graded_{filename}"
-    
-    # เซฟลง folder เดียวกับที่อัปโหลด (เช่น media/uploads/)
     save_dir = os.path.dirname(image_path)
     save_path = os.path.join(save_dir, graded_filename)
-    
     cv2.imwrite(save_path, result_img)
     
     return {
         "student_id": "".join(stu_id_list),
         "score": score,
-        "image_url": graded_filename # ส่งชื่อไฟล์กลับไป
+        "image_url": graded_filename 
     }, None
