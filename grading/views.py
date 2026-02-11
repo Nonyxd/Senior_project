@@ -1,465 +1,416 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from .models import Exam, StudentResult, Enrollment, Subject, Student
-from .utils import process_omr, generate_key_image
 import os
 import uuid
 import datetime
 import urllib.parse
+import json
+import pandas as pd 
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
+from django.db import transaction
+from django.views.decorators.http import require_POST
 
-# --- Imports สำหรับ ReportLab (สร้าง PDF) ---
-from django.http import HttpResponse
+# --- ReportLab Imports ---
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# --- ตั้งค่า Font ภาษาไทยสำหรับ PDF ---
-try:
-    font_path = os.path.join(settings.BASE_DIR, 'static/fonts/THSarabunNew.ttf')
-    if os.path.exists(font_path):
-        pdfmetrics.registerFont(TTFont('THSarabun', font_path))
-        FONT_NAME = 'THSarabun'
-        FONT_SIZE = 14
-    else:
-        FONT_NAME = 'Helvetica'
-        FONT_SIZE = 12
-except:
-    FONT_NAME = 'Helvetica'
-    FONT_SIZE = 12
+# --- Models ---
+from .models import Exam, StudentResult, Student
 
+# --- Utils ---
+from .utils import process_omr, generate_key_image, generate_exam_pdf
 
-# --- 1. หน้า Dashboard (Index) ---
+# ==========================================
+# 0. API & Helpers
+# ==========================================
+@login_required
+@require_POST
+def api_parse_excel(request):
+    try:
+        if not request.FILES.get('file'): return JsonResponse({'success': False, 'error': 'No file uploaded'})
+        excel_file = request.FILES['file']
+        df = pd.read_excel(excel_file)
+        if df.empty: return JsonResponse({'success': False, 'error': 'Empty file'})
+
+        first_row = df.iloc[0]
+        data = {
+            'subject_code': str(first_row.get('SubjectCode', '')).strip(),
+            'subject_name': str(first_row.get('SubjectName', '')).strip(),
+            'section': str(first_row.get('Section', '1')).strip(),
+            'student_count': len(df)
+        }
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@require_POST
+def delete_subject_api(request):
+    try:
+        data = json.loads(request.body)
+        subject_code = data.get('subject_code')
+        if not subject_code: return JsonResponse({'success': False, 'error': 'Missing Code'})
+        exams = Exam.objects.filter(subject_code=subject_code)
+        count = exams.count()
+        for ex in exams:
+            if ex.key_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, ex.key_image.name)):
+                try: os.remove(os.path.join(settings.MEDIA_ROOT, ex.key_image.name))
+                except: pass
+        exams.delete()
+        return JsonResponse({'success': True, 'message': f'Deleted {count} exams for {subject_code}'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+# ==========================================
+# 1. Dashboard & Create
+# ==========================================
 @login_required
 def index(request):
-    exams = Exam.objects.only('id', 'name', 'created_at', 'key_image').order_by('-created_at')
+    exams = Exam.objects.filter(is_active=True).order_by('-created_at')
     return render(request, 'grading/index.html', {'exams': exams})
 
-
-# --- 2. หน้าสร้างเฉลย (Create Exam) ---
 @login_required
 def create_exam(request):
-    subjects = Subject.objects.all()
-
+    existing_subjects = Exam.objects.values('subject_code', 'subject_name').distinct()
     if request.method == 'POST':
-        # รับค่าจากฟอร์ม
-        subject_id = request.POST.get('subject_id')
-        custom_name = request.POST.get('name', '').strip()
-        key_type = request.POST.get('key_type')
-        
-        course_code = request.POST.get('course_code', '')
-        room = request.POST.get('room', '')
-        
-        # 1. รับค่า Limit (สำคัญ: ต้องรับก่อนเริ่มลูป)
-        try:
-            total_questions = int(request.POST.get('total_questions', 100))
-        except ValueError:
-            total_questions = 100
-            
+        subject_code = request.POST.get('subject_code', '').strip()
+        subject_name = request.POST.get('subject_name', '').strip()
+        section = request.POST.get('section', '1')
         exam_date_str = request.POST.get('exam_date')
         start_time_str = request.POST.get('start_time')
-        end_time_str = request.POST.get('end_time')
+        duration = request.POST.get('duration_minutes', 120)
+        room = request.POST.get('room', '')
+        total_questions = int(request.POST.get('total_questions', 100))
+        key_type = request.POST.get('key_type', 'manual')
 
-        # Logic จัดการชื่อวิชา
-        final_name = custom_name
-        if subject_id:
-            try:
-                selected_subject = Subject.objects.get(pk=subject_id)
-                if not final_name: 
-                    final_name = selected_subject.name
-                if not course_code:
-                    course_code = selected_subject.code
-            except Subject.DoesNotExist:
-                pass
-
-        # Validation Context
-        context = {
-            'range_100': range(1, 101),
-            'subjects': subjects,
-            'saved_name': final_name,
-            'saved_code': course_code,
-            'saved_room': room,
-            'saved_total': total_questions,
-            'saved_date': exam_date_str,
-            'saved_start': start_time_str,
-            'saved_end': end_time_str,
-        }
-
-        # --- VALIDATION ZONE ---
-        if not final_name:
-            context['error'] = 'กรุณาระบุชื่อวิชา หรือเลือกจาก Dropdown'
+        context = {'existing_subjects': existing_subjects, 'range_100': range(1, 101), 'saved': request.POST}
+        
+        if not subject_code or not subject_name:
+            context['error'] = 'กรุณาระบุรหัสวิชาและชื่อวิชา'
             return render(request, 'grading/create_exam.html', context)
 
-        if Exam.objects.filter(name=final_name).exists():
-            context['error'] = f'ชื่อวิชา "{final_name}" มีอยู่แล้วในระบบ'
+        try:
+            e_date = datetime.datetime.strptime(exam_date_str, '%Y-%m-%d').date() if exam_date_str else timezone.now().date()
+            s_time = datetime.datetime.strptime(start_time_str, '%H:%M').time() if start_time_str else timezone.now().time()
+        except ValueError:
+            context['error'] = 'รูปแบบวันที่หรือเวลาไม่ถูกต้อง'
             return render(request, 'grading/create_exam.html', context)
 
-        # ตรวจสอบวันที่ (ห้ามเป็นอดีต)
-        if exam_date_str:
-            try:
-                parsed_date = datetime.datetime.strptime(exam_date_str, '%Y-%m-%d').date()
-                if parsed_date < datetime.date.today():
-                    context['error'] = 'วันที่สอบไม่สามารถเป็นวันที่ผ่านมาแล้วได้'
-                    return render(request, 'grading/create_exam.html', context)
-            except ValueError:
-                pass
-
-        # ตรวจสอบเวลา (เริ่มต้องมาก่อนจบ)
-        if start_time_str and end_time_str:
-            try:
-                s_t = datetime.datetime.strptime(start_time_str, '%H:%M').time()
-                e_t = datetime.datetime.strptime(end_time_str, '%H:%M').time()
-                if s_t >= e_t:
-                    context['error'] = 'เวลาเริ่มสอบต้องมาก่อนเวลาจบสอบ'
-                    return render(request, 'grading/create_exam.html', context)
-            except ValueError:
-                pass
-        # -----------------------
-
-        # Logic สร้างเฉลย
         key = {}
-        # ** FIX: วนลูปแค่ 1 ถึง total_questions **
-        target_range = range(1, total_questions + 1)
-
-        if key_type == 'sequential':
-            for i in target_range:
-                if 1 <= i <= 20: ch = 'a'
-                elif 21 <= i <= 40: ch = 'b'
-                elif 41 <= i <= 60: ch = 'c'
-                elif 61 <= i <= 80: ch = 'd'
-                else: ch = 'e'
-                key[str(i)] = [ch]
-        elif key_type == 'manual':
-            missing_questions = []
-            for i in target_range:
+        missing_questions = []
+        for i in range(1, total_questions + 1):
+            if key_type == 'sequential':
+                if i <= 20: val = 'a'
+                elif i <= 40: val = 'b'
+                elif i <= 60: val = 'c'
+                elif i <= 80: val = 'd'
+                else: val = 'e'
+                key[str(i)] = [val]
+            else:
                 val = request.POST.get(f'q_{i}')
-                if val: 
-                    key[str(i)] = [val]
+                if val: key[str(i)] = [val]
                 else:
                     key[str(i)] = []
                     missing_questions.append(str(i))
-            
-            if missing_questions:
-                context['error'] = f"เลือกเฉลยไม่ครบตามจำนวน {total_questions} ข้อ (ขาดข้อ: {', '.join(missing_questions)})"
-                return render(request, 'grading/create_exam.html', context)
-
-        # สร้างรูป Preview (ส่ง total_questions ไปวาดเส้นแดงในรูป)
-        temp_filename = f"preview_{uuid.uuid4().hex[:8]}.jpg"
-        preview_path = generate_key_image(key, temp_filename, total_questions)
         
-        if not preview_path:
-            context['error'] = 'เกิดข้อผิดพลาดในการสร้างรูปเฉลย'
+        if missing_questions and key_type == 'manual':
+            context['error'] = f"เฉลยไม่ครบข้อ: {', '.join(missing_questions)}"
             return render(request, 'grading/create_exam.html', context)
 
-        # บันทึก Session
-        request.session['temp_exam_data'] = {
-            'name': final_name, 
-            'key': key, 
-            'image_path': preview_path,
-            'subject_id': subject_id,
-            'course_code': course_code,
-            'room': room,
-            'total_questions': total_questions,
-            'exam_date': exam_date_str,
-            'start_time': start_time_str,
-            'end_time': end_time_str
-        }
-        return render(request, 'grading/create_preview.html', {'name': final_name, 'image_url': preview_path})
+        temp_filename = f"preview_{uuid.uuid4().hex[:8]}.jpg"
+        preview_path = generate_key_image(key, temp_filename, total_questions)
 
-    # GET Request
+        request.session['temp_exam_data'] = {
+            'subject_code': subject_code, 'subject_name': subject_name,
+            'section': section, 'exam_date': str(e_date), 'start_time': str(s_time),
+            'duration_minutes': duration, 'room': room, 'total_questions': total_questions,
+            'answer_key': key, 'key_image_path': preview_path
+        }
+
+        if request.FILES.get('roster_file'):
+            excel_file = request.FILES['roster_file']
+            fs = default_storage
+            filename = fs.save(f"temp_rosters/{excel_file.name}", excel_file)
+            request.session['temp_roster_path'] = filename
+
+        return render(request, 'grading/create_preview.html', {
+            'name': f"{subject_code} {subject_name}", 'image_url': preview_path
+        })
+
     return render(request, 'grading/create_exam.html', {
-        'range_100': range(1, 101), 
-        'subjects': subjects,
-        'saved_total': 100
+        'existing_subjects': existing_subjects, 'range_100': range(1, 101)
     })
 
-
-# --- 3. ยืนยันบันทึก (Create Confirm) ---
 @login_required
 def save_exam_confirm(request):
     data = request.session.get('temp_exam_data')
     if not data: return redirect('create_exam')
-
+    
     if request.method == 'POST':
-        e_date = datetime.datetime.strptime(data['exam_date'], '%Y-%m-%d').date() if data.get('exam_date') else None
-        s_time = datetime.datetime.strptime(data['start_time'], '%H:%M').time() if data.get('start_time') else None
-        e_time = datetime.datetime.strptime(data['end_time'], '%H:%M').time() if data.get('end_time') else None
-
         exam = Exam.objects.create(
-            name=data['name'], 
-            answer_key=data['key'], 
-            key_image=data['image_path'],
-            course_code=data.get('course_code', ''),
-            room=data.get('room', ''),
-            total_questions=data.get('total_questions', 100),
-            exam_date=e_date,
-            start_time=s_time,
-            end_time=e_time
+            subject_code=data['subject_code'], subject_name=data['subject_name'],
+            section=data['section'], exam_date=data['exam_date'], start_time=data['start_time'],
+            duration_minutes=data['duration_minutes'], room=data['room'],
+            total_questions=data['total_questions'], answer_key=data['answer_key'],
+            key_image=data['key_image_path'], is_active=True
         )
-
-        subject_id = data.get('subject_id')
-        if subject_id:
-            try:
-                subject = Subject.objects.get(pk=subject_id)
-                students = subject.students.all()
-                enrollment_list = []
-                for stu in students:
-                    enrollment_list.append(Enrollment(exam=exam, student=stu, section="1"))
-                Enrollment.objects.bulk_create(enrollment_list)
-            except Subject.DoesNotExist:
-                pass 
+        roster_path = request.session.get('temp_roster_path')
+        if roster_path:
+            full_path = os.path.join(settings.MEDIA_ROOT, roster_path)
+            if os.path.exists(full_path):
+                try:
+                    df = pd.read_excel(full_path)
+                    for _, row in df.iterrows():
+                        sid = str(row.iloc[3]).strip() if len(row)>3 else str(row.get('StudentID',''))
+                        fn = str(row.iloc[4]).strip() if len(row)>4 else str(row.get('FirstName',''))
+                        ln = str(row.iloc[5]).strip() if len(row)>5 else str(row.get('LastName',''))
+                        if sid and sid.lower()!='nan':
+                            stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
+                            exam.enrolled_students.add(stu)
+                    os.remove(full_path)
+                except: pass
         
-        exam_name = data['name']
         del request.session['temp_exam_data']
-        messages.success(request, f"สร้างวิชาสอบ '{exam_name}' เสร็จสิ้น")
+        if 'temp_roster_path' in request.session: del request.session['temp_roster_path']
+        messages.success(request, f"สร้างวิชา {exam.subject_code} สำเร็จ")
         return redirect('index')
     
-    if 'image_path' in data and os.path.exists(os.path.join(settings.MEDIA_ROOT, data['image_path'])):
-        os.remove(os.path.join(settings.MEDIA_ROOT, data['image_path']))
+    if 'key_image_path' in data:
+        path = os.path.join(settings.MEDIA_ROOT, data['key_image_path'])
+        if os.path.exists(path): os.remove(path)
     del request.session['temp_exam_data']
-    return redirect('index')
+    return redirect('create_exam')
 
-
-# --- 4. ลบวิชาสอบ ---
 @login_required
-def delete_exam(request, exam_id):
-    exam = get_object_or_404(Exam.objects.only('id', 'name', 'key_image'), pk=exam_id)
-    if request.method == 'POST':
-        exam_name = exam.name
-        if exam.key_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, exam.key_image)):
-            os.remove(os.path.join(settings.MEDIA_ROOT, exam.key_image))
-        exam.delete()
-        messages.success(request, f"ลบเฉลยกระดาษข้อสอบ {exam_name} เสร็จสิ้น") 
-        return redirect('index')
-    return render(request, 'grading/delete_confirm.html', {'exam': exam})
+def upload_students(request, exam_id):
+    exam = get_object_or_404(Exam, pk=exam_id)
+    if request.method == 'POST' and request.FILES.get('excel_file'):
+        try:
+            df = pd.read_excel(request.FILES['excel_file'])
+            c = 0
+            for _, row in df.iterrows():
+                sid = str(row.iloc[0]).strip()
+                fn = str(row.iloc[1]).strip()
+                ln = str(row.iloc[2]).strip()
+                stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
+                exam.enrolled_students.add(stu)
+                c += 1
+            messages.success(request, f"เพิ่มนิสิต {c} คน")
+            return redirect('grade_exam', exam_id=exam.id)
+        except Exception as e:
+            messages.error(request, f"Error: {e}")
+    return render(request, 'grading/upload_students.html', {'exam': exam})
 
-
-# --- 5. ตรวจข้อสอบ ---
+# ==========================================
+# 5. Grade Exam (Catch-all + Missing List)
+# ==========================================
 @login_required
 def grade_exam_view(request, exam_id):
-    exam = get_object_or_404(Exam.objects.only('id', 'name', 'answer_key'), pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id)
+    
+    # Upload Logic
     if request.method == 'POST' and request.FILES.get('image'):
         files = request.FILES.getlist('image')
         c = 0
         for f in files:
-            res = StudentResult.objects.create(exam=exam, student_id="Pending", score=0, original_image=f)
-            full_path = os.path.join(settings.MEDIA_ROOT, res.original_image.name)
-            data, err = process_omr(full_path, exam.answer_key)
+            res = StudentResult.objects.create(
+                exam=exam, student_id_ocr="Processing...", score=0, original_image=f, status='OCR'
+            )
+            data, err = process_omr(res.original_image.path, exam.answer_key)
             if data:
-                res.student_id = data['student_id']
-                res.score = data['score']
-                res.graded_image = 'uploads/' + data['image_url']
+                clean_id = str(data.get('student_id', 'Unknown')).strip()
+                res.student_id_ocr = clean_id
+                res.score = data.get('score', 0)
+                res.results_data = data.get('details', {})
+                
+                # Fix Path
+                if 'image_url' in data:
+                    raw_path = str(data['image_url'])
+                    if 'uploads' in raw_path:
+                        idx = raw_path.find('uploads')
+                        rel_path = raw_path[idx:]
+                    elif 'media' in raw_path:
+                        idx = raw_path.find('media')
+                        rel_path = raw_path[idx+6:]
+                    else:
+                        filename = os.path.basename(raw_path)
+                        rel_path = f"uploads/papers/{filename}"
+                    res.graded_image = rel_path.replace('\\', '/')
+                
+                try:
+                    res.student = Student.objects.get(student_id=clean_id)
+                except Student.DoesNotExist:
+                    res.student = None
                 res.save()
                 c += 1
-        messages.success(request, f"อัปโหลดและตรวจเรียบร้อย {c} ใบ")
-        return redirect('grade_exam', exam_id=exam.id)
-    
-    results = StudentResult.objects.filter(exam=exam).select_related('exam').order_by('-timestamp')
-    return render(request, 'grading/grade.html', {'exam': exam, 'results': results})
-
-
-# --- 6. ลบผลสอบรายบุคคล ---
-@login_required
-def delete_result(request, result_id):
-    result = get_object_or_404(StudentResult.objects.select_related('exam'), pk=result_id)
-    exam_id = result.exam.id
-    student_id = result.student_id
-
-    if request.method == 'POST':
-        if result.original_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, result.original_image.name)):
-            os.remove(os.path.join(settings.MEDIA_ROOT, result.original_image.name))
-        if result.graded_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, result.graded_image)):
-            os.remove(os.path.join(settings.MEDIA_ROOT, result.graded_image))
-        result.delete()
-        messages.success(request, f"ลบกระดาษคำตอบของ '{student_id}' เสร็จสิ้น")
-        return redirect('grade_exam', exam_id=exam_id)
-
-    return render(request, 'grading/delete_result_confirm.html', {'result': result})
-
-
-# --- 7. แก้ไขเฉลย (Edit Exam) ---
-@login_required
-def edit_exam(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    subjects = Subject.objects.all()
-    
-    if request.method == 'POST':
-        name = request.POST.get('name', '').strip()
-        course_code = request.POST.get('course_code', '')
-        room = request.POST.get('room', '')
-        subject_id = request.POST.get('subject_id')
-        
-        exam_date_str = request.POST.get('exam_date')
-        start_time_str = request.POST.get('start_time')
-        end_time_str = request.POST.get('end_time')
-
-        # 1. รับค่า Limit
-        try:
-            total_questions = int(request.POST.get('total_questions', 100))
-        except ValueError:
-            total_questions = 100
-
-        # 2. เก็บเฉลย (วนลูปเท่าจำนวน Limit เท่านั้น)
-        key = {}
-        missing_questions = []
-        
-        # ** FIX: วนลูป 1 ถึง total_questions เท่านั้น **
-        for i in range(1, total_questions + 1):
-            val = request.POST.get(f'q_{i}')
-            if val: 
-                key[str(i)] = [val]
             else:
-                key[str(i)] = []
-                missing_questions.append(str(i))
+                print(f"Error: {err}")
+        messages.success(request, f"ตรวจเรียบร้อย {c} ใบ")
+        return redirect('grade_exam', exam_id=exam.id)
+
+    # Display Logic
+    all_results = StudentResult.objects.filter(exam=exam).select_related('student')
+    enrolled_students = exam.enrolled_students.all().order_by('student_id')
+    
+    student_dashboard = []
+    missing_students = []
+    submitted_count = 0
+    shown_result_ids = set()
+
+    result_map = {}
+    for r in all_results:
+        if r.student:
+            result_map[r.student.student_id.strip()] = r
+
+    for student in enrolled_students:
+        s_id = student.student_id.strip()
+        result = result_map.get(s_id)
         
-        context = {'exam': exam, 'range_100': range(1, 101), 'subjects': subjects}
+        if result:
+            status = 'SUBMITTED'
+            submitted_count += 1
+            shown_result_ids.add(result.id)
+            student_dashboard.append({'info': student, 'result': result, 'status': status})
+        else:
+            missing_students.append(student)
+            student_dashboard.append({'info': student, 'result': None, 'status': 'MISSING'})
+
+    unknown_results = [r for r in all_results if r.id not in shown_result_ids]
+
+    return render(request, 'grading/grade.html', {
+        'exam': exam,
+        'student_dashboard': student_dashboard,
+        'missing_students': missing_students,
+        'unknown_results': unknown_results,
+        'submitted_count': submitted_count,
+        'total_students': enrolled_students.count(),
+        'results': all_results,
+    })
+
+# ==========================================
+# 6. Edit Result
+# ==========================================
+@login_required
+def edit_result(request, result_id):
+    result = get_object_or_404(StudentResult, pk=result_id)
+    exam = result.exam
+    
+    if result.status == 'OCR':
+        result.status = 'EDITING'
+        result.save()
+
+    answer_key = exam.answer_key
+    student_answers = result.results_data or {}
+    combined_data = {}
+    
+    for i in range(1, exam.total_questions + 1):
+        q = str(i)
+        k = answer_key.get(q, [])
+        s = student_answers.get(q, [])
         
-        # --- VALIDATION ZONE ---
-        if not name: 
-            context['error'] = 'ชื่อห้ามว่าง'
-            return render(request, 'grading/edit_exam.html', context)
-        
-        if Exam.objects.filter(name=name).exclude(pk=exam_id).exists():
-            context['error'] = f'ชื่อวิชา "{name}" มีอยู่ในระบบแล้ว'
-            return render(request, 'grading/edit_exam.html', context)
+        s_choice = s.get('choice', []) if isinstance(s, dict) else s
+        if not isinstance(s_choice, list): s_choice = [s_choice] 
 
-        if missing_questions: 
-            context['error'] = f'เลือกไม่ครบตามจำนวน {total_questions} ข้อ (ขาดข้อ: {",".join(missing_questions)})'
-            return render(request, 'grading/edit_exam.html', context)
+        is_correct = False
+        error_reason = ""
 
-        # ตรวจสอบวันที่ (ห้ามเป็นอดีต) - เช็คเฉพาะถ้ามีการส่งค่ามา
-        if exam_date_str:
-            try:
-                parsed_date = datetime.datetime.strptime(exam_date_str, '%Y-%m-%d').date()
-                if parsed_date < datetime.date.today():
-                    context['error'] = 'วันที่สอบไม่สามารถเป็นวันที่ผ่านมาแล้วได้'
-                    return render(request, 'grading/edit_exam.html', context)
-            except ValueError:
-                pass
-
-        # ตรวจสอบเวลา
-        if start_time_str and end_time_str:
-            try:
-                s_t = datetime.datetime.strptime(start_time_str, '%H:%M').time()
-                e_t = datetime.datetime.strptime(end_time_str, '%H:%M').time()
-                if s_t >= e_t:
-                    context['error'] = 'เวลาเริ่มสอบต้องมาก่อนเวลาจบสอบ'
-                    return render(request, 'grading/edit_exam.html', context)
-            except ValueError:
-                pass
-        # -----------------------
-
-        # สร้างรูป Preview สำหรับ Edit (ส่ง total_questions ไปวาดเส้นแดง)
-        temp_filename = f"preview_edit_{uuid.uuid4().hex[:8]}.jpg"
-        preview_path = generate_key_image(key, temp_filename, total_questions)
-        
-        if not preview_path:
-            context['error'] = 'เกิดข้อผิดพลาดในการสร้างรูปเฉลย'
-            return render(request, 'grading/edit_exam.html', context)
-
-        # บันทึก Session
-        request.session['temp_edit_data'] = {
-            'name': name,
-            'key': key,
-            'image_path': preview_path, 
-            'subject_id': subject_id,
-            'course_code': course_code,
-            'room': room,
-            'total_questions': total_questions,
-            'exam_date': exam_date_str,
-            'start_time': start_time_str,
-            'end_time': end_time_str
+        if k and s_choice and s_choice[0] in k: 
+            is_correct = True
+        else:
+            if not s_choice: 
+                error_reason = "EMPTY"
+            elif len(s_choice) > 1: 
+                error_reason = "MULTIPLE"
+            else: 
+                error_reason = "WRONG"
+            
+        combined_data[q] = {
+            'key': k, 
+            'student': s_choice, 
+            'is_correct': is_correct,
+            'error_reason': error_reason
         }
-        
-        return redirect('edit_exam_preview', exam_id=exam.id)
 
-    # GET Request
-    return render(request, 'grading/edit_exam.html', {
-        'exam': exam, 
-        'range_100': range(1, 101), 
-        'subjects': subjects
+    return render(request, 'grading/edit_result.html', {
+        'result': result, 'exam': exam, 'combined_data': combined_data
     })
 
+# ==========================================
+# 7. API Update
+# ==========================================
 @login_required
-def edit_exam_preview(request, exam_id):
-    data = request.session.get('temp_edit_data')
-    if not data:
-        return redirect('edit_exam', exam_id=exam_id)
-    return render(request, 'grading/edit_preview.html', {
-        'exam_id': exam_id,
-        'name': data['name'],
-        'image_url': data['image_path']
-    })
+@require_POST
+def api_update_result(request, result_id):
+    try:
+        data = json.loads(request.body)
+        result = get_object_or_404(StudentResult, pk=result_id)
+        action = data.get('action')
 
-@login_required
-def save_edit_confirm(request, exam_id):
-    data = request.session.get('temp_edit_data')
-    if not data: 
-        return redirect('edit_exam', exam_id=exam_id)
+        if action == 'update_score':
+            q_num = str(data.get('q_num'))
+            is_correct = data.get('is_correct')
+            student_answers = result.results_data or {}
+            key_list = result.exam.answer_key.get(q_num, [])
+            
+            if is_correct: student_answers[q_num] = [key_list[0]] if key_list else ['Free']
+            else: student_answers[q_num] = ['F']
+            
+            new_score = 0
+            for i in range(1, result.exam.total_questions + 1):
+                qn = str(i)
+                k = result.exam.answer_key.get(qn, [])
+                v = student_answers.get(qn, [])
+                s = v.get('choice', []) if isinstance(v, dict) else v
+                if k and s and s[0] in k: new_score += 1
+            
+            result.results_data = student_answers
+            result.score = new_score
+            result.status = 'EDITING'
+            result.save()
+            return JsonResponse({'success': True, 'new_score': new_score})
 
-    exam = get_object_or_404(Exam, pk=exam_id)
+        elif action == 'update_status':
+            result.status = data.get('status')
+            result.save()
+            return JsonResponse({'success': True})
 
-    if request.method == 'POST':
-        # ลบรูปเก่า
-        if exam.key_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, exam.key_image)):
-            os.remove(os.path.join(settings.MEDIA_ROOT, exam.key_image))
-
-        # อัปเดตข้อมูล
-        exam.name = data['name']
-        exam.answer_key = data['key']
-        exam.key_image = data['image_path']
-        exam.course_code = data['course_code']
-        exam.room = data['room']
-        exam.total_questions = data['total_questions']
-        
-        if data['exam_date']: exam.exam_date = datetime.datetime.strptime(data['exam_date'], '%Y-%m-%d').date()
-        if data['start_time']: exam.start_time = datetime.datetime.strptime(data['start_time'], '%H:%M').time()
-        if data['end_time']: exam.end_time = datetime.datetime.strptime(data['end_time'], '%H:%M').time()
-        
-        exam.save()
-
-        # อัปเดตรายชื่อนักเรียน
-        subject_id = data.get('subject_id')
-        if subject_id:
+        elif action == 'update_student_id':
+            new_id = str(data.get('student_id', '')).strip()
+            if not new_id: return JsonResponse({'success': False, 'error': 'Empty ID'})
+            result.student_id_ocr = new_id
             try:
-                subject = Subject.objects.get(pk=subject_id)
-                Enrollment.objects.filter(exam=exam).delete()
-                students = subject.students.all()
-                enrollment_list = []
-                for stu in students:
-                    enrollment_list.append(Enrollment(exam=exam, student=stu, section="1"))
-                Enrollment.objects.bulk_create(enrollment_list)
-            except Subject.DoesNotExist:
-                pass
+                stu = Student.objects.get(student_id=new_id)
+                result.student = stu
+                student_name = f"{stu.first_name} {stu.last_name}"
+                found = True
+            except Student.DoesNotExist:
+                result.student = None
+                student_name = "(ไม่พบข้อมูลนิสิต)"
+                found = False
+            result.save()
+            return JsonResponse({'success': True, 'student_name': student_name, 'found': found})
 
-        del request.session['temp_edit_data']
-        messages.success(request, f"บันทึกการแก้ไข '{exam.name}' เรียบร้อยแล้ว")
-        return redirect('index')
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+    return JsonResponse({'success': False}, status=400)
 
-    # ยกเลิก
-    if 'image_path' in data and os.path.exists(os.path.join(settings.MEDIA_ROOT, data['image_path'])):
-        os.remove(os.path.join(settings.MEDIA_ROOT, data['image_path']))
-    del request.session['temp_edit_data']
-    return redirect('edit_exam', exam_id=exam_id)
-
-
-# --- 8. Confirm Logout ---
-@login_required
-def logout_confirm_view(request):
-    return render(request, 'registration/logout_confirm.html')
-
-
-# --- 9. สร้าง PDF กระดาษคำตอบ ---
+# ==========================================
+# 8. PDF (เพิ่ม: กา X + เขียนเลขรหัสนิสิต)
+# ==========================================
 @login_required
 def generate_answer_sheet(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
-    enrollments = Enrollment.objects.filter(exam=exam).select_related('student')
+    students = exam.enrolled_students.all()
     
-    filename = f"OMR_{exam.name}.pdf"
+    filename = f"OMR_{exam.subject_code}.pdf"
     encoded_filename = urllib.parse.quote(filename)
     
     response = HttpResponse(content_type='application/pdf')
@@ -468,51 +419,231 @@ def generate_answer_sheet(request, exam_id):
     c = canvas.Canvas(response, pagesize=A4)
     width, height = A4
     
-    bg_image_path = os.path.join(settings.MEDIA_ROOT, 'templates/omr_template.jpg') 
+    font_path = os.path.join(settings.BASE_DIR, 'static', 'THSARABUNNEW.TTF')
+    font_name_use = 'Helvetica'
+    font_size_use = 12
+    if os.path.exists(font_path):
+        try:
+            pdfmetrics.registerFont(TTFont('THSarabunNew', font_path))
+            font_name_use = 'THSarabunNew'
+            font_size_use = 16 
+        except: pass
+    
+    bg_image_path = os.path.join(settings.MEDIA_ROOT, 'templates', 'omr_template.jpg') 
 
-    # ตรวจสอบโหมด
-    if not enrollments.exists():
-        loop_data = [None] # โหมดกระดาษเปล่า
-    else:
-        loop_data = enrollments # โหมดมีรายชื่อ
+    if not students.exists(): loop_data = [None]
+    else: loop_data = students
 
-    for item in loop_data:
-        # A. วาดพื้นหลัง
-        if os.path.exists(bg_image_path):
+    for student in loop_data:
+        if os.path.exists(bg_image_path): 
             c.drawImage(bg_image_path, 0, 0, width=width, height=height)
         
-        # B. ใส่ข้อมูลส่วนหัว
-        if item is not None:
-            student = item.student
-            
-            c.setFont(FONT_NAME, FONT_SIZE)
+        if student is not None:
+            c.setFont(font_name_use, font_size_use)
             c.setFillColorRGB(0, 0, 0.5)
             
-            # --- แถว 1 ---
+            # --- 1. ข้อความทั่วไป ---
             c.drawString(45*mm, 256*mm, f"{student.first_name} {student.last_name}")
-            c.drawString(105*mm, 256*mm, f"{exam.name}")
-            c.drawString(165*mm, 256*mm, f"{exam.course_code}")
-
-            # --- แถว 2 (รหัส + หมู่เรียน) ---
+            c.drawString(105*mm, 256*mm, f"{exam.subject_name}")
+            c.drawString(165*mm, 256*mm, f"{exam.subject_code}")
             c.drawString(45*mm, 248*mm, f"{student.student_id}")
-            # แสดงหมู่เรียน
-            c.drawString(105*mm, 248*mm, f"{item.section}")
-
-            # --- แถว 3 (ห้อง + เวลา + วันที่) ---
+            c.drawString(105*mm, 248*mm, f"{exam.section}") 
+            c.drawString(165*mm, 248*mm, exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else "")
             c.drawString(45*mm, 240*mm, f"{exam.room}")
+            c.drawString(105*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
+            c.drawString(165*mm, 240*mm, f"{exam.duration_minutes} นาที")
+
+            # --- 2. Auto Mark "X" & Student ID Number ---
             
-            time_str = ""
-            if exam.start_time and exam.end_time:
-                # บังคับเวลาแบบ 24 ชม.
-                time_str = f"{exam.start_time.strftime('%H:%M')} - {exam.end_time.strftime('%H:%M')}"
-            c.drawString(105*mm, 240*mm, time_str)
+            # (A) ตั้งค่าโครงสร้างตารางหลัก (ใช้อ้างอิงทั้งเลขและ X)
+            GRID_START_X = 24 * mm
+            GRID_START_Y = 214 * mm 
+            STEP_X = 5.8 * mm
+            STEP_Y = 4 * mm
             
-            date_str = exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else ""
-            c.drawString(165*mm, 240*mm, date_str)
-        
-        # C. ไม่วาดเส้นแดงใน PDF (ตามที่ขอ เหลือแค่ในรูป preview)
+            # (B) ตัวปรับตำแหน่งเฉพาะ "X" (แก้ตรงนี้เพื่อเลื่อนกากบาทอย่างเดียว)
+            # ใส่ค่าบวก (+) เพื่อเลื่อนขวา/ขึ้น, ค่าลบ (-) เพื่อเลื่อนซ้าย/ลง
+            OFFSET_X_ONLY = 0 * mm   # <--- ปรับซ้าย-ขวา ของ X ตรงนี้
+            OFFSET_Y_ONLY = 2 * mm   # <--- ปรับบน-ล่าง ของ X ตรงนี้
+            
+            student_id_str = str(student.student_id).strip()
+            
+            c.setFillColorRGB(0, 0, 0)
+            
+            for i, char in enumerate(student_id_str):
+                if char.isdigit():
+                    digit = int(char)
+                    # คำนวณตำแหน่งมาตรฐาน
+                    base_x = GRID_START_X + (i * STEP_X)
+                    base_y = GRID_START_Y - (digit * STEP_Y)
+                    
+                    # -----------------------------------------------------------
+                    # 2.1 วาดกากบาท (X) -> บวก Offset เข้าไปเฉพาะตรงนี้
+                    # -----------------------------------------------------------
+                    c.setFont("Helvetica", 14)
+                    c.drawString(base_x + OFFSET_X_ONLY, base_y + OFFSET_Y_ONLY, "x")
+                    
+                    # -----------------------------------------------------------
+                    # 2.2 เขียนตัวเลขรหัสนิสิต (ไม่ได้รับผลกระทบจาก Offset ข้างบน)
+                    # -----------------------------------------------------------
+                    header_y = GRID_START_Y + 6.5 * mm 
+                    c.setFont("Helvetica", 8) 
+                    c.drawString(base_x + 1.5*mm, header_y, char)
 
         c.showPage()
 
     c.save()
     return response
+
+@login_required
+def download_exam_sheet(request, exam_id, student_id=None):
+    exam = get_object_or_404(Exam, pk=exam_id)
+    student = get_object_or_404(Student, student_id=student_id) if student_id else None
+    
+    filename = f"OMR_{exam.subject_code}_{student.student_id}.pdf" if student else f"OMR_{exam.subject_code}_Master.pdf"
+    
+    response = HttpResponse(content_type='application/pdf')
+    encoded_filename = urllib.parse.quote(filename)
+    response['Content-Disposition'] = f'attachment; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+
+    generate_exam_pdf(response, exam, student)
+    return response
+
+# ==========================================
+# 9. Delete Exam (แก้เป็น: ลบผลสอบถาวร + ซ่อนวิชา)
+# ==========================================
+@login_required
+def delete_exam(request, exam_id):
+    exam = get_object_or_404(Exam, pk=exam_id)
+    
+    if request.method == 'POST':
+        # 1. ลบผลสอบและรูปภาพทั้งหมด (Hard Delete) เพื่อคืนพื้นที่
+        results = exam.results.all()
+        deleted_count = results.count()
+        
+        for res in results:
+            if res.original_image:
+                try: os.remove(os.path.join(settings.MEDIA_ROOT, res.original_image.name))
+                except: pass
+            if res.graded_image:
+                try: os.remove(os.path.join(settings.MEDIA_ROOT, res.graded_image.name))
+                except: pass
+            res.delete()
+
+        # 2. ซ่อนวิชา (Soft Delete)
+        exam.is_active = False 
+        exam.save()
+        
+        messages.success(request, f"ลบผลสอบ {deleted_count} ใบ และนำวิชา {exam.subject_code} ออกจากรายการแล้ว")
+        return redirect('index')
+        
+    return render(request, 'grading/delete_confirm.html', {'exam': exam})
+
+@login_required
+def delete_result(request, result_id):
+    result = get_object_or_404(StudentResult, pk=result_id)
+    exam_id = result.exam.id
+    if request.method == 'POST':
+        if result.original_image: 
+            try: os.remove(os.path.join(settings.MEDIA_ROOT, result.original_image.name))
+            except: pass
+        if result.graded_image:
+            try: os.remove(os.path.join(settings.MEDIA_ROOT, result.graded_image.name))
+            except: pass
+        result.delete()
+        messages.success(request, "ลบผลการตรวจแล้ว")
+    return redirect('grade_exam', exam_id=exam_id)
+
+@login_required
+def edit_exam(request, exam_id):
+    exam = get_object_or_404(Exam, pk=exam_id)
+    existing_subjects = Exam.objects.values('subject_code', 'subject_name').distinct()
+    if request.method == 'POST':
+        subject_code = request.POST.get('subject_code', '').strip()
+        subject_name = request.POST.get('subject_name', '').strip()
+        section = request.POST.get('section', '1')
+        exam_date_str = request.POST.get('exam_date')
+        start_time_str = request.POST.get('start_time')
+        duration = request.POST.get('duration_minutes', 120)
+        room = request.POST.get('room', '')
+        total_questions = int(request.POST.get('total_questions', 100))
+        key_type = request.POST.get('key_type', 'manual')
+
+        key = {}
+        missing_questions = []
+        for i in range(1, total_questions + 1):
+            if key_type == 'sequential':
+                if i <= 20: val = 'a'
+                elif i <= 40: val = 'b'
+                elif i <= 60: val = 'c'
+                elif i <= 80: val = 'd'
+                else: val = 'e'
+                key[str(i)] = [val]
+            else:
+                val = request.POST.get(f'q_{i}')
+                if val: key[str(i)] = [val]
+                else:
+                    key[str(i)] = []
+                    missing_questions.append(str(i))
+        
+        context = {'exam': exam, 'existing_subjects': existing_subjects, 'range_100': range(1, 101)}
+        if not subject_code or not subject_name:
+            context['error'] = 'ชื่อวิชาและรหัสวิชาห้ามว่าง'
+            return render(request, 'grading/edit_exam.html', context)
+        if missing_questions and key_type == 'manual':
+            context['error'] = f'เฉลยไม่ครบ'
+            return render(request, 'grading/edit_exam.html', context)
+
+        temp_filename = f"preview_edit_{uuid.uuid4().hex[:8]}.jpg"
+        preview_path = generate_key_image(key, temp_filename, total_questions)
+        request.session['temp_edit_data'] = {
+            'subject_code': subject_code, 'subject_name': subject_name,
+            'section': section, 'exam_date': exam_date_str, 'start_time': start_time_str,
+            'duration_minutes': duration, 'room': room, 'total_questions': total_questions,
+            'answer_key': key, 'image_path': preview_path
+        }
+        return redirect('edit_exam_preview', exam_id=exam.id)
+    return render(request, 'grading/edit_exam.html', {
+        'exam': exam, 'range_100': range(1, 101), 'existing_subjects': existing_subjects
+    })
+
+@login_required
+def edit_exam_preview(request, exam_id):
+    data = request.session.get('temp_edit_data')
+    if not data: return redirect('edit_exam', exam_id=exam_id)
+    return render(request, 'grading/edit_preview.html', {
+        'exam_id': exam_id, 'name': f"{data['subject_code']} {data['subject_name']}", 'image_url': data['image_path']
+    })
+
+@login_required
+def save_edit_confirm(request, exam_id):
+    data = request.session.get('temp_edit_data')
+    if not data: return redirect('edit_exam', exam_id=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id)
+    if request.method == 'POST':
+        if exam.key_image: 
+            try: os.remove(os.path.join(settings.MEDIA_ROOT, exam.key_image.name))
+            except: pass
+        exam.subject_code = data['subject_code']
+        exam.subject_name = data['subject_name']
+        exam.section = data['section']
+        exam.room = data['room']
+        exam.total_questions = data['total_questions']
+        exam.answer_key = data['answer_key']
+        exam.key_image = data['image_path']
+        exam.duration_minutes = data['duration_minutes']
+        if data['exam_date']: exam.exam_date = datetime.datetime.strptime(data['exam_date'], '%Y-%m-%d').date()
+        if data['start_time']: exam.start_time = datetime.datetime.strptime(data['start_time'], '%H:%M').time()
+        exam.save()
+        del request.session['temp_edit_data']
+        messages.success(request, "แก้ไขวิชาเรียบร้อย")
+        return redirect('index')
+    if 'image_path' in data:
+        try: os.remove(os.path.join(settings.MEDIA_ROOT, data['image_path']))
+        except: pass
+    del request.session['temp_edit_data']
+    return redirect('edit_exam', exam_id=exam_id)
+
+@login_required
+def logout_confirm_view(request):
+    return render(request, 'registration/logout_confirm.html')

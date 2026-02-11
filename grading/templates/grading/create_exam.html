@@ -1,166 +1,383 @@
-{% load grading_extras %}
+{% extends 'grading/base.html' %}
 
+{% block content %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 
 <style>
-    .grid-container { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 15px; }
-    .question-item { background: #f8f9fa; padding: 5px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
-    .manual-section { display: none; }
-    .btn-save { width: 100%; max-width: 300px; padding: 12px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; transition: 0.3s; }
-    .btn-save:hover { background-color: #45a049; }
-    .btn-back { text-decoration: none; background-color: #ccc; color: black; padding: 12px 20px; border-radius: 5px; font-size: 16px; display: inline-block; margin-right: 10px; border: none; cursor: pointer; }
-    .btn-back:hover { background-color: #bbb; }
-    .alert-box { background-color: #f8d7da; color: #721c24; padding: 15px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 5px; }
-    .form-group { margin-bottom: 20px; }
+    /* Grid for Choice Selection */
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding: 10px;
+        border: 1px solid #ddd;
+        background: #f9f9f9;
+    }
+    .question-item {
+        background: #fff;
+        padding: 5px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        text-align: center;
+        font-size: 12px;
+    }
+    .question-item label { margin-bottom: 2px; display: block; font-weight: bold; }
+    .question-item select { width: 100%; padding: 2px; font-size: 11px; }
+
+    /* Custom Styles */
+    .form-section {
+        background: #fff;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .section-title {
+        border-bottom: 2px solid #333;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+        color: #333;
+        font-weight: bold;
+    }
     label { font-weight: bold; display: block; margin-bottom: 5px; color: #333; }
-    input, select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-    hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
+    input[type="text"], input[type="number"], input[type="date"], select, .form-control {
+        width: 100%;
+        padding: 10px;
+        box-sizing: border-box;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    .btn-save {
+        background-color: #2196F3;
+        color: white;
+        padding: 12px 30px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        width: 100%;
+    }
+    .btn-save:hover { background-color: #1976D2; }
     
-    /* ปรับแต่ง input เวลาให้ดูดีขึ้น */
-    input.time-picker { background-color: #fff; cursor: pointer; }
+    .mode-switch {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #eee;
+        border-radius: 5px;
+    }
+    
+    /* Adjust Select2 height */
+    .select2-container .select2-selection--single { height: 42px; border: 1px solid #ccc; border-radius: 4px; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 40px; }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 40px; }
+
+    /* Delete Button in Modal */
+    .delete-subject-btn {
+        color: #dc3545;
+        cursor: pointer;
+        padding: 5px 10px;
+        font-weight: bold;
+        font-size: 1.2em;
+        transition: 0.2s;
+    }
+    .delete-subject-btn:hover {
+        background-color: #ffe6e6;
+        border-radius: 50%;
+    }
 </style>
 
-<div style="max-width: 800px; margin: 0 auto; padding: 20px; font-family: sans-serif;">
-    <h1 style="text-align: center;">สร้างเฉลยข้อสอบใหม่</h1>
+<div class="container" style="font-family: sans-serif; max-width: 900px; margin: 0 auto;">
     
+    <div style="background-color: #333; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 5px; margin-bottom: 20px;">
+        <h2 style="margin: 0;">Create New Exam</h2>
+        <a href="{% url 'index' %}" style="color: #ccc; text-decoration: none;">&larr; Back to Dashboard</a>
+    </div>
+
     {% if error %}
-    <div class="alert-box"><strong>ข้อผิดพลาด:</strong> {{ error }}</div>
+    <div style="background-color: #f8d7da; color: #721c24; padding: 15px; margin-bottom: 20px; border: 1px solid #f5c6cb; border-radius: 5px;">
+        <strong>Error:</strong> {{ error }}
+    </div>
     {% endif %}
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data" id="createExamForm">
         {% csrf_token %}
-        
-        <div class="form-group" style="background: #e3f2fd; padding: 15px; border-radius: 8px; border: 1px solid #90caf9;">
-            <label style="color: #1565c0;">เลือกวิชาที่มีในระบบ (เพื่อดึงรายชื่อนักเรียน):</label>
-            <select name="subject_id" id="subjectSelect" onchange="autoFillSubjectInfo()">
-                <option value="">-- สร้างวิชาใหม่ (กรอกเอง) --</option>
-                {% for sub in subjects %}
-                    <option value="{{ sub.id }}" data-name="{{ sub.name }}" data-code="{{ sub.code }}">
-                        {{ sub.code }} - {{ sub.name }} (มีนักเรียน {{ sub.students.count }} คน)
-                    </option>
-                {% endfor %}
-            </select>
-            <small style="color: #555;">* เมื่อเลือกวิชา ระบบจะดึงรายชื่อนักเรียนมาเตรียมไว้สำหรับการ Print กระดาษคำตอบ</small>
-        </div>
 
-        <div class="form-group">
-            <label>ชื่อการสอบ (แก้ไขได้):</label>
-            <input type="text" name="name" id="examNameInput" 
-                   value="{{ saved_name|default:'' }}" 
-                   required maxlength="100" 
-                   oninput="updateCharCount()"
-                   placeholder="เช่น: สอบกลางภาค 2026">
-            <div style="text-align: right; font-size: 12px; color: #666; margin-top: 2px;">
-                <span id="charCount">0</span>/100
+        <div class="form-section">
+            <h4 class="section-title">1. Select Creation Mode</h4>
+            <div class="mode-switch">
+                <label style="display: inline-flex; align-items: center; cursor: pointer;">
+                    <input type="radio" name="mode" value="manual" checked onclick="toggleMode('manual')" style="width: auto; margin-right: 8px;"> 
+                    Manual Input
+                </label>
+                <label style="display: inline-flex; align-items: center; cursor: pointer;">
+                    <input type="radio" name="mode" value="excel" onclick="toggleMode('excel')" style="width: auto; margin-right: 8px;"> 
+                    Excel Upload (Auto Fill + Import Roster)
+                </label>
             </div>
-        </div>
 
-        <hr>
-
-        <div style="display: flex; gap: 20px;">
-            <div class="form-group" style="flex: 1;">
-                <label>รหัสวิชา:</label>
-                <input type="text" name="course_code" id="courseCodeInput" value="{{ saved_code|default:'' }}">
-            </div>
-            <div class="form-group" style="flex: 1;">
-                <label>ห้องสอบ:</label>
-                <input type="text" name="room" value="{{ saved_room|default:'' }}">
-            </div>
-        </div>
-
-        <div style="display: flex; gap: 20px;">
-            <div class="form-group" style="flex: 1;">
-                <label>วันที่สอบ:</label>
-                <input type="date" name="exam_date" value="{{ saved_date|default:'' }}">
-            </div>
-            <div class="form-group" style="flex: 1;">
-                <label>เวลาเริ่ม (24 ชม.):</label>
-                <input type="text" class="time-picker" name="start_time" value="{{ saved_start|default:'' }}" placeholder="เลือกเวลา...">
-            </div>
-            <div class="form-group" style="flex: 1;">
-                <label>เวลาจบ (24 ชม.):</label>
-                <input type="text" class="time-picker" name="end_time" value="{{ saved_end|default:'' }}" placeholder="เลือกเวลา...">
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label style="color: #d32f2f;">จำนวนข้อสอบ (Limit):</label>
-            <input type="number" name="total_questions" 
-                   value="{{ saved_total|default:100 }}" 
-                   min="1" max="100" required>
-            <small style="color: #666;">ระบบจะขีดเส้นแดงกั้นข้อสุดท้ายให้อัตโนมัติ</small>
-        </div>
-
-        <hr>
-
-        <div class="form-group">
-            <label>รูปแบบเฉลย:</label>
-            <select name="key_type" id="keyType" onchange="toggleManual()">
-                <option value="sequential">แบบอัตโนมัติ (A:1-20, B:21-40...)</option>
-                <option value="manual">กำหนดเอง (เลือกทีละข้อ)</option>
-            </select>
-        </div>
-
-        <div id="manualInput" class="manual-section">
-            <h3 style="border-bottom: 2px solid #ddd; padding-bottom: 10px;">เลือกคำตอบ</h3>
-            <div class="grid-container">
-                {% for i in range_100 %}
-                <div class="question-item">
-                    <label style="font-size: 12px; display: block;">{{ i }}</label>
-                    <select name="q_{{ i }}" style="width: 100%;">
-                        <option value="">-</option>
-                        <option value="a">A</option>
-                        <option value="b">B</option>
-                        <option value="c">C</option>
-                        <option value="d">D</option>
-                        <option value="e">E</option>
-                    </select>
+            <div style="margin-top: 15px;">
+                <label>Search Existing Subject (Auto Fill):</label>
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex-grow: 1;">
+                        <select id="subjectSelect" class="searchable-select" style="width: 100%;">
+                            <option value="">-- Type to search --</option>
+                            {% for sub in existing_subjects %}
+                                <option value="{{ sub.subject_code }}|{{ sub.subject_name }}">
+                                    {{ sub.subject_code }} - {{ sub.subject_name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#manageSubjectModal" style="white-space: nowrap;">
+                        <i class="fas fa-trash-alt"></i> จัดการ/ลบวิชา
+                    </button>
                 </div>
-                {% endfor %}
             </div>
         </div>
-        
-        <div style="text-align: center; margin-top: 30px; display: flex; justify-content: center;">
-            <a href="{% url 'index' %}" class="btn-back">ย้อนกลับ</a>
-            <button type="submit" class="btn-save">บันทึกและตรวจสอบ</button>
+
+        <div id="excel-part" class="form-section" style="display: none; border-left: 5px solid #4CAF50;">
+            <h4 class="section-title">2. Upload Excel File</h4>
+            <p style="color: #666; font-size: 14px;">
+                Required Header: <code>SubjectCode</code>, <code>SubjectName</code>, <code>Section</code>, <code>StudentID</code>, <code>FirstName</code>, <code>LastName</code>
+            </p>
+            <input type="file" id="excelUploader" name="roster_file" accept=".xlsx, .xls" class="form-control" style="padding: 10px; background: #f1f1f1;">
+            <small class="text-success" id="uploadStatus"></small>
         </div>
+
+        <div class="form-section">
+            <h4 class="section-title">3. Exam Details</h4>
+            
+            <div style="display: flex; gap: 20px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label>Course Code:</label>
+                    <input type="text" name="subject_code" id="courseCodeInput" value="{{ saved.subject_code }}" required>
+                </div>
+                <div style="flex: 2;">
+                    <label>Subject Name:</label>
+                    <input type="text" name="subject_name" id="examNameInput" value="{{ saved.subject_name }}" required>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 20px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label>Section:</label>
+                    <input type="text" name="section" id="sectionInput" value="{{ saved.section|default:'1' }}">
+                </div>
+                <div style="flex: 1;">
+                    <label>Room:</label>
+                    <input type="text" name="room" value="{{ saved.room }}">
+                </div>
+            </div>
+
+            <hr style="border-top: 1px solid #eee;">
+
+            <div style="display: flex; gap: 20px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label>Date:</label>
+                    <input type="date" name="exam_date" value="{{ saved.exam_date }}" required>
+                </div>
+                <div style="flex: 1;">
+                    <label>Start Time (24h):</label>
+                    <input type="text" class="time-picker" name="start_time" value="{{ saved.start_time|default:'09:00' }}">
+                </div>
+                <div style="flex: 1;">
+                    <label>Duration (Minutes):</label>
+                    <input type="number" name="duration_minutes" value="{{ saved.duration_minutes|default:'120' }}">
+                </div>
+            </div>
+
+            <div>
+                <label style="color: #d32f2f;">Total Questions (Limit):</label>
+                <input type="number" name="total_questions" value="{{ saved.total_questions|default:100 }}" min="1" max="120">
+            </div>
+        </div>
+
+        <div id="key-part" class="form-section">
+            <h4 class="section-title">4. Answer Key</h4>
+            
+            <div style="margin-bottom: 15px; padding: 15px; background: #e3f2fd; border-radius: 5px;">
+                <label style="color: #1565c0;">Key Pattern:</label>
+                <select name="key_type" id="keyType" onchange="toggleKeyInput()" style="border: 2px solid #2196F3; padding: 5px;">
+                    <option value="sequential" selected>Auto (A:1-20, B:21-40...)</option>
+                    <option value="manual">Manual (Select individually)</option>
+                </select>
+                <small style="display: block; margin-top: 5px; color: #555;">
+                    * Select "Manual" to define specific answers for up to 100 questions.
+                </small>
+            </div>
+
+            <div id="manualKeyInput" style="display: none;">
+                <div class="grid-container">
+                    {% for i in range_100 %}
+                    <div class="question-item">
+                        <label>{{ i }}</label>
+                        <select name="q_{{ i }}">
+                            <option value="">-</option>
+                            <option value="a">A</option>
+                            <option value="b">B</option>
+                            <option value="c">C</option>
+                            <option value="d">D</option>
+                            <option value="e">E</option>
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 50px;">
+            <button type="submit" class="btn-save">Save & Create Exam</button>
+        </div>
+
     </form>
 </div>
 
+<div class="modal fade" id="manageSubjectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> จัดการรายชื่อวิชา (ลบวิชาเก่า)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> <b>คำเตือน:</b> การลบวิชาในหน้านี้ จะทำการลบ <u>ทุกการสอบ</u> และ <u>ผลคะแนนทั้งหมด</u> ภายใต้วิชานั้นๆ ทันที
+                </div>
+                
+                <div class="list-group">
+                    {% for sub in existing_subjects %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-bold text-primary">{{ sub.subject_code }}</span>
+                            <span class="text-dark mx-2">-</span>
+                            <span>{{ sub.subject_name }}</span>
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm rounded-circle" 
+                                onclick="deleteSubject('{{ sub.subject_code }}')" 
+                                title="ลบวิชานี้ถาวร">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    {% empty %}
+                    <div class="text-center p-4 text-muted">ไม่พบข้อมูลวิชา</div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
 <script>
-    // เปิดใช้งานตัวเลือกเวลาแบบ 24 ชั่วโมง
-    flatpickr(".time-picker", {
-        enableTime: true,
-        noCalendar: true,
-        dateFormat: "H:i",
-        time_24hr: true,
+    $(document).ready(function() {
+        // Select2
+        $('.searchable-select').select2({ placeholder: "-- Type to search --", allowClear: true });
+
+        // Auto Fill Search
+        $('#subjectSelect').on('select2:select', function (e) {
+            var val = $(this).val();
+            if (val) {
+                var parts = val.split('|');
+                $('#courseCodeInput').val(parts[0]);
+                $('#examNameInput').val(parts[1]);
+            }
+        });
+
+        // Auto Fill Excel
+        $('#excelUploader').on('change', function() {
+            var fileData = $(this).prop('files')[0];
+            var formData = new FormData();
+            formData.append('file', fileData);
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+            $('#uploadStatus').text('Reading file...');
+            $('#examNameInput').attr('placeholder', 'Loading...');
+            
+            $.ajax({
+                url: '{% url "api_parse_excel" %}',
+                type: 'post',
+                data: formData,
+                contentType: false,
+                processData: false,
+                success: function(response){
+                    if(response.success){
+                        $('#courseCodeInput').val(response.data.subject_code);
+                        $('#examNameInput').val(response.data.subject_name);
+                        $('#sectionInput').val(response.data.section);
+                        
+                        $('#uploadStatus').text('File read successfully! Found: ' + response.data.subject_name);
+                    } else {
+                        alert('Error: ' + response.error);
+                        $('#uploadStatus').text('');
+                    }
+                }
+            });
+        });
     });
 
-    function autoFillSubjectInfo() {
-        var select = document.getElementById("subjectSelect");
-        var selectedOption = select.options[select.selectedIndex];
-        var nameInput = document.getElementById("examNameInput");
-        var codeInput = document.getElementById("courseCodeInput");
-        
-        var subjectName = selectedOption.getAttribute("data-name");
-        var subjectCode = selectedOption.getAttribute("data-code");
-        
-        if (subjectName) nameInput.value = subjectName;
-        if (subjectCode) codeInput.value = subjectCode;
+    // Time Picker
+    flatpickr(".time-picker", { enableTime: true, noCalendar: true, dateFormat: "H:i", time_24hr: true });
+
+    function toggleMode(mode) {
+        if (mode === 'excel') {
+            document.getElementById('excel-part').style.display = 'block';
+            document.getElementById('key-part').style.display = 'block'; 
+        } else {
+            document.getElementById('excel-part').style.display = 'none';
+            document.getElementById('key-part').style.display = 'block';
+        }
     }
 
-    function toggleManual() {
+    function toggleKeyInput() {
         var type = document.getElementById("keyType").value;
-        document.getElementById("manualInput").style.display = (type === "manual") ? "block" : "none";
+        document.getElementById("manualKeyInput").style.display = (type === "manual") ? "block" : "none";
     }
 
-    function updateCharCount() {
-        var input = document.getElementById("examNameInput");
-        var span = document.getElementById("charCount");
-        span.innerText = input.value.length;
-        span.style.color = (input.value.length >= 100) ? "red" : "#666";
+    // ฟังก์ชันลบวิชา (เรียก API)
+    function deleteSubject(code) {
+        if(!confirm('⚠️ ยืนยันการลบวิชา ' + code + ' ?\n\nคำเตือน: การลบวิชานี้จะทำให้ข้อมูลการสอบและผลคะแนนทั้งหมดภายใต้วิชานี้ถูกลบไปด้วย และไม่สามารถกู้คืนได้')) {
+            return;
+        }
+
+        fetch('{% url "delete_subject_api" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ subject_code: code })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                alert('✅ ' + data.message);
+                location.reload(); // รีโหลดหน้าเพื่ออัปเดต Dropdown
+            } else {
+                alert('❌ เกิดข้อผิดพลาด: ' + data.error);
+            }
+        })
+        .catch(err => {
+            alert('❌ ไม่สามารถเชื่อมต่อกับ Server ได้');
+        });
     }
 
-    window.onload = function() { toggleManual(); updateCharCount(); }
+    // Init
+    toggleMode('manual');
+    toggleKeyInput();
 </script>
+{% endblock %}

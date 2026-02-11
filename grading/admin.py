@@ -1,28 +1,34 @@
 from django.contrib import admin
-from .models import Exam, StudentResult
+from .models import Exam, StudentResult, Student
 
-# --- 1. ปรับแต่งตาราง Exam ---
+# --- 1. ปรับแต่งตาราง Student (รายชื่อนิสิต) ---
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ('student_id', 'first_name', 'last_name')
+    search_fields = ('student_id', 'first_name', 'last_name')
+    ordering = ('student_id',)
+
+# --- 2. ปรับแต่งตาราง Exam ---
+@admin.register(Exam)
 class ExamAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'created_at')
-    search_fields = ('name',)
+    # ปรับ field ให้ตรงกับ Model ใหม่
+    list_display = ('id', 'subject_code', 'subject_name', 'section', 'exam_date', 'total_questions', 'created_at')
+    search_fields = ('subject_code', 'subject_name')
+    list_filter = ('exam_date',)
+    ordering = ('-created_at',)
     
-    # OPTIMIZATION:
-    # เวลาเข้าหน้าลิสต์รายการ ไม่ต้องดึง JSON เฉลย (answer_key) ออกมา
-    # ช่วยให้โหลดหน้า Admin เร็วขึ้นมากถ้ามีข้อสอบเยอะๆ
+    # OPTIMIZATION: ไม่ดึง JSON เฉลยมาแสดงในหน้า List เพื่อความเร็ว
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.defer('answer_key') 
 
-# --- 2. ปรับแต่งตาราง StudentResult ---
+# --- 3. ปรับแต่งตาราง StudentResult ---
+@admin.register(StudentResult)
 class StudentResultAdmin(admin.ModelAdmin):
-    list_display = ('student_id', 'exam', 'score', 'timestamp')
-    list_filter = ('exam',) 
+    # ปรับ field ให้ตรงกับ Model ใหม่ (timestamp -> last_updated, student_id -> student_id_ocr)
+    list_display = ('id', 'exam', 'student_id_ocr', 'score', 'status', 'last_updated')
+    list_filter = ('status', 'exam') 
+    search_fields = ('student_id_ocr', 'exam__subject_name')
     
-    # OPTIMIZATION:
-    # ใช้ select_related เพื่อดึงชื่อ Exam มาพร้อมกันเลยในรอบเดียว
-    # (แก้ปัญหา N+1 Query: ถ้าไม่ใส่ บรรทัดนี้จะยิง SQL รัวๆ ตามจำนวนผลสอบ)
-    list_select_related = ('exam',)
-
-# ลงทะเบียน
-admin.site.register(Exam, ExamAdmin)
-admin.site.register(StudentResult, StudentResultAdmin)
+    # OPTIMIZATION: ดึงข้อมูล Exam และ Student มาด้วยใน Query เดียว (แก้ N+1)
+    list_select_related = ('exam', 'student')

@@ -1,88 +1,142 @@
-<div class="container" style="font-family: sans-serif;">
+{% extends 'grading/base.html' %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<form id="csrf-form" style="display:none;">
+    {% csrf_token %}
+</form>
+
+<div class="container" style="font-family: 'Sarabun', sans-serif; padding: 20px;">
     
     <div style="background-color: #333; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 5px; margin-bottom: 20px;">
-        <h2 style="margin: 0;">OMR System</h2>
+        <h2 style="margin: 0;"><i class="fas fa-chalkboard-teacher"></i> ระบบจัดการการสอบ</h2>
         
         <div style="text-align: right;">
             <span style="font-size: 16px; margin-right: 15px;">
                 สวัสดี, <b>{{ user.username }}</b> 
                 <span style="background: #555; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 5px;">
-                    {% if user.is_superuser %}
-                        ADMIN
-                    {% else %}
-                        USER
-                    {% endif %}
+                    {% if user.is_superuser %}ADMIN{% else %}USER{% endif %}
                 </span>
             </span>
-
-            <a href="{% url 'logout_confirm' %}" style="background: #f44336; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-size: 14px;">Logout</a>
+            <a href="{% url 'logout_confirm' %}" style="background: #f44336; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-size: 14px;">ออกจากระบบ</a>
         </div>
     </div>
 
-    <div style="padding: 0 10px;">
-        <h1>Exam Dashboard</h1>
-        
-        {% if messages %}
-            {% for message in messages %}
-                <div style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-                    {{ message }}
-                </div>
-            {% endfor %}
-        {% endif %}
+    {% if messages %}
+        {% for message in messages %}
+            <div style="padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; 
+                        {% if message.tags == 'success' %}color: #155724; background-color: #d4edda; border-color: #c3e6cb;{% else %}color: #721c24; background-color: #f8d7da; border-color: #f5c6cb;{% endif %}">
+                <i class="fas {% if message.tags == 'success' %}fa-check-circle{% else %}fa-exclamation-circle{% endif %}"></i> {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
 
-        <a href="{% url 'create_exam' %}" class="btn" style="background:#2196F3; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px;">+ Create New Exam</a>
-        <hr>
+    <div style="padding: 0 10px;">
+        
+        <a href="{% url 'create_exam' %}" class="btn" style="background:#2196F3; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
+            <i class="fas fa-plus"></i> สร้างการสอบใหม่
+        </a>
+        <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
         
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
             {% for exam in exams %}
-            <div style="border: 1px solid #ccc; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: white;">
+            <div style="border: 1px solid #ccc; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: white; transition: transform 0.2s;">
                 
-                <h3 style="margin-top: 0; 
-                           display: -webkit-box; 
-                           -webkit-line-clamp: 2; 
-                           -webkit-box-orient: vertical; 
-                           overflow: hidden; 
-                           text-overflow: ellipsis; 
-                           word-break: break-word; 
-                           height: 2.8em; 
-                           line-height: 1.4em;" 
-                    title="{{ exam.name }}">
-                    {{ exam.name }}
+                <h3 style="margin-top: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; height: 3.2em; line-height: 1.4em;" 
+                    title="{{ exam.subject_code }} {{ exam.subject_name }}">
+                    <span style="color: #2196F3;">{{ exam.subject_code }}</span><br>
+                    <span style="font-size: 0.9em;">{{ exam.subject_name }}</span>
                 </h3>
 
-                <p style="color: #666; font-size: 14px;">Date: {{ exam.created_at|date:"d M Y" }}</p>
+                <p style="color: #666; font-size: 14px;">
+                    <i class="far fa-calendar-alt"></i> สอบวันที่: {{ exam.exam_date|date:"d M Y" }} | 
+                    <span style="background: #eee; padding: 2px 5px; border-radius: 3px;">Sec: {{ exam.section }}</span>
+                </p>
                 
                 {% if exam.key_image %}
-                    <img src="/media/{{ exam.key_image }}" style="width: 100%; height: 150px; object-fit: cover; border: 1px solid #ddd; margin-bottom: 10px; border-radius: 4px;">
+                    <img src="{{ exam.key_image.url }}" style="width: 100%; height: 150px; object-fit: cover; border: 1px solid #ddd; margin-bottom: 10px; border-radius: 4px;">
                 {% else %}
-                    <div style="background:#eee; height:150px; display:flex; align-items:center; justify-content:center; margin-bottom:10px; border-radius: 4px; color: #888;">No Preview</div>
+                    <div style="background:#eee; height:150px; display:flex; align-items:center; justify-content:center; margin-bottom:10px; border-radius: 4px; color: #888;">
+                        <i class="fas fa-image fa-2x me-2"></i> ไม่มีรูปเฉลย
+                    </div>
                 {% endif %}
 
                 <div style="display: flex; gap: 5px; margin-top: 10px;">
                     <a href="{% url 'grade_exam' exam.id %}" 
                        style="flex: 2; background:#4CAF50; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px; font-size:14px;">
-                       Grade
+                        <i class="fas fa-check-circle"></i> ตรวจ
                     </a>
                     
                     <a href="{% url 'print_sheets' exam.id %}" target="_blank"
                        style="flex: 1; background:#607D8B; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px; font-size:14px;"
-                       title="Print Answer Sheets">
-                       🖨️
+                       title="พิมพ์กระดาษคำตอบ">
+                        <i class="fas fa-print"></i>
                     </a>
 
                     <a href="{% url 'edit_exam' exam.id %}" 
-                       style="flex: 1; background:#ff9800; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px; font-size:14px;">
-                       Edit
+                       style="flex: 1; background:#ff9800; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px; font-size:14px;"
+                       title="แก้ไข">
+                        <i class="fas fa-edit"></i>
                     </a>
                     
-                    <a href="{% url 'delete_exam' exam.id %}" 
-                       style="flex: 1; background:#f44336; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px; font-size:14px;">
-                       Del
-                    </a>
+                    <button type="button" 
+                            onclick="confirmDelete('{% url 'delete_exam' exam.id %}', '{{ exam.subject_code|escapejs }} {{ exam.subject_name|escapejs }}')"
+                            style="flex: 1; background:#f44336; color:white; padding:8px; text-align:center; text-decoration:none; border:none; border-radius:4px; font-size:14px; cursor: pointer;"
+                            title="ลบ">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </div>
 
             </div>
+            {% empty %}
+                <div style="grid-column: 1 / -1; text-align: center; color: #999; padding: 50px;">
+                    <i class="fas fa-folder-open fa-3x" style="margin-bottom: 15px; color: #ccc;"></i>
+                    <h3>ไม่พบข้อมูลการสอบ</h3>
+                    <p>คลิก "สร้างการสอบใหม่" เพื่อเริ่มต้นใช้งาน</p>
+                </div>
             {% endfor %}
         </div>
     </div>
 </div>
+
+<script>
+    function confirmDelete(deleteUrl, examName) {
+        Swal.fire({
+            title: 'ยืนยันการลบ?',
+            html: `คุณแน่ใจหรือไม่ที่จะลบวิชา:<br><strong style="font-size: 1.2em; color: #d33;">${examName}</strong><br><br>
+                   <div style="font-size: 0.9em; color: #555; text-align: left; background: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffeeba;">
+                       <i class="fas fa-exclamation-triangle text-warning"></i> <strong>คำเตือน:</strong><br>
+                       1. ข้อมูลผลสอบและรูปภาพทั้งหมดจะถูก <span class="text-danger fw-bold">ลบถาวร</span><br>
+                       2. รายวิชานี้จะถูกซ่อนออกจากหน้า Dashboard
+                   </div>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-trash-alt"></i> ยืนยัน, ลบเลย!',
+            cancelButtonText: 'ยกเลิก',
+            reverseButtons: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // ดึง CSRF Token จาก Form ที่ซ่อนไว้
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+                // สร้าง Form ชั่วคราวเพื่อส่ง POST Request
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = deleteUrl;
+
+                const hiddenField = document.createElement('input');
+                hiddenField.type = 'hidden';
+                hiddenField.name = 'csrfmiddlewaretoken';
+                hiddenField.value = csrfToken;
+
+                form.appendChild(hiddenField);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,240 @@
+{% extends 'grading/base.html' %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<div class="container-fluid" style="padding: 20px; height: 100vh; overflow: hidden;">
+    
+    <div class="row mb-3 align-items-center bg-white p-3 shadow-sm" style="border-bottom: 1px solid #ddd;">
+        
+        <div class="col-md-5 d-flex align-items-center gap-3">
+            <a href="{% url 'grade_exam' exam.id %}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i> กลับ
+            </a>
+            
+            <div class="input-group input-group-sm" style="width: 250px;">
+                <span class="input-group-text"><i class="fas fa-id-card"></i></span>
+                <input type="text" id="studentIdInput" class="form-control fw-bold text-primary" 
+                       value="{{ result.student_id_ocr }}" placeholder="รหัสนิสิต">
+                <button class="btn btn-outline-primary" type="button" onclick="updateStudentId()" title="บันทึกรหัสใหม่">
+                    <i class="fas fa-save"></i>
+                </button>
+            </div>
+
+            <span class="text-muted small text-truncate" id="studentNameDisplay" style="max-width: 200px;">
+                {% if result.student %}
+                    {{ result.student.first_name }} {{ result.student.last_name }}
+                {% else %}
+                    <span class="text-danger">(ไม่พบข้อมูล)</span>
+                {% endif %}
+            </span>
+        </div>
+
+        <div class="col-md-3 text-center">
+            <h2 class="mb-0 text-primary fw-bold">
+                <span id="display-score">{{ result.score }}</span> <span class="text-muted fs-5">/ {{ exam.total_questions }}</span>
+            </h2>
+        </div>
+
+        <div class="col-md-4 text-end">
+            <span id="status-badge" class="badge rounded-pill 
+                {% if result.status == 'FINISHED' %}bg-success{% elif result.status == 'EDITING' %}bg-warning text-dark{% else %}bg-secondary{% endif %} me-2">
+                {{ result.get_status_display }}
+            </span>
+
+            <button onclick="updateStatus('FINISHED')" class="btn btn-success fw-bold">
+                <i class="fas fa-check-circle"></i> ยืนยันผลตรวจ
+            </button>
+        </div>
+    </div>
+
+    <div class="row" style="height: calc(100vh - 120px);">
+        
+        <div class="col-md-7 h-100 bg-dark d-flex justify-content-center align-items-center" style="overflow: auto; position: relative;">
+            <div style="box-shadow: 0 0 20px rgba(0,0,0,0.5);">
+                {% if result.graded_image %}
+                    <img src="{{ result.graded_image.url }}" style="max-width: 100%; display: block;" alt="Graded Answer Sheet">
+                {% elif result.original_image %}
+                    <img src="{{ result.original_image.url }}" style="max-width: 100%; display: block;" alt="Original Answer Sheet">
+                {% else %}
+                    <div class="text-white p-5 border border-secondary rounded text-center">
+                        <i class="fas fa-image-slash fa-3x mb-3"></i><br>
+                        ไม่พบไฟล์รูปภาพ
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-md-5 h-100" style="overflow-y: auto; background: white; border-left: 1px solid #ddd; padding: 0;">
+            <div class="p-3">
+                <h6 class="border-bottom pb-2 mb-3 text-muted"><i class="fas fa-list-ol"></i> รายละเอียดคำตอบ</h6>
+                
+                <div class="list-group">
+                    {% for q_num, q_data in combined_data.items %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center question-row 
+                        {% if not q_data.is_correct %}orange-warning-box{% endif %}" 
+                        id="row-{{ q_num }}">
+                        
+                        <div class="d-flex align-items-center">
+                            <div class="fw-bold me-3 text-secondary" style="width: 30px;">{{ q_num }}.</div>
+                            <div class="me-3">
+                                <span class="badge bg-light text-dark border" title="เฉลย">Key: {{ q_data.key|join:"," }}</span>
+                                <span class="mx-1 text-muted"><small>vs</small></span>
+                                
+                                <span class="badge {% if q_data.is_correct %}bg-success{% else %}bg-danger{% endif %}" title="คำตอบนิสิต">
+                                    Ans: {{ q_data.student|join:","|default:"-" }}
+                                </span>
+
+                                {% if not q_data.is_correct %}
+                                    <span class="ms-2 badge bg-secondary" style="font-size: 0.7em;">
+                                        {% if q_data.error_reason == 'EMPTY' %}
+                                            ไม่ได้กา
+                                        {% elif q_data.error_reason == 'MULTIPLE' %}
+                                            กาเกิน
+                                        {% else %}
+                                            ตอบผิด
+                                        {% endif %}
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-outline-success" onclick="manualUpdate('{{ q_num }}', true)" title="ให้คะแนน">
+                                <i class="fas fa-check"></i> ถูก
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="manualUpdate('{{ q_num }}', false)" title="หักคะแนน">
+                                <i class="fas fa-times"></i> ผิด
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .orange-warning-box { 
+        background-color: #fff3e0 !important; 
+        border-left: 5px solid #ff9800 !important; 
+    }
+    .question-row:hover { 
+        background-color: #f8f9fa; 
+        cursor: pointer; 
+    }
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #999; }
+</style>
+
+<script>
+    const RESULT_ID = "{{ result.id }}";
+
+    // 1. Function to Update Student ID
+    function updateStudentId() {
+        const newId = document.getElementById('studentIdInput').value;
+        if(!newId) {
+            Swal.fire('แจ้งเตือน', 'กรุณากรอกรหัสนิสิต', 'warning');
+            return;
+        }
+
+        fetch("{% url 'api_update_result' result.id %}", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ action: 'update_student_id', student_id: newId })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                // Update displayed name immediately
+                const nameSpan = document.getElementById('studentNameDisplay');
+                if(data.found) {
+                    nameSpan.innerHTML = `<span class="text-success"><i class="fas fa-user-check"></i> ${data.student_name}</span>`;
+                } else {
+                    nameSpan.innerHTML = `<span class="text-danger">(ไม่พบข้อมูลในระบบ)</span>`;
+                }
+                Swal.fire({
+                    icon: 'success',
+                    title: 'บันทึกเรียบร้อย',
+                    text: 'อัปเดตรหัสนิสิตแล้ว',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+            } else {
+                Swal.fire('เกิดข้อผิดพลาด', data.error, 'error');
+            }
+        })
+        .catch(err => {
+            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
+        });
+    }
+
+    // 2. Function to Manually Update Score (Correct/Incorrect toggle)
+    function manualUpdate(qNum, isCorrect) {
+        const row = document.getElementById(`row-${qNum}`);
+        
+        // Toggle visual style immediately for responsiveness
+        if (isCorrect) {
+            row.classList.remove('orange-warning-box');
+        } else {
+            row.classList.add('orange-warning-box');
+        }
+
+        fetch("{% url 'api_update_result' result.id %}", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ action: 'update_score', q_num: qNum, is_correct: isCorrect })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                // Update total score display
+                document.getElementById('display-score').innerText = data.new_score;
+                updateBadge('EDITING'); // Change status to Editing
+            }
+        });
+    }
+
+    // 3. Function to Update Exam Status (Finish)
+    function updateStatus(status) {
+        fetch("{% url 'api_update_result' result.id %}", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify({ action: 'update_status', status: status })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                updateBadge(status);
+                
+                Swal.fire({
+                    title: 'บันทึกสำเร็จ!',
+                    text: 'การตรวจเสร็จสิ้นแล้ว กำลังกลับสู่หน้าหลัก...',
+                    icon: 'success',
+                    timer: 1500,
+                    showConfirmButton: false
+                }).then(() => {
+                    // Redirect back to grade dashboard
+                    window.location.href = "{% url 'grade_exam' exam.id %}";
+                });
+            }
+        });
+    }
+
+    // Helper to update the status badge UI
+    function updateBadge(status) {
+        const badge = document.getElementById('status-badge');
+        if (status === 'FINISHED') {
+            badge.className = "badge rounded-pill bg-success me-2";
+            badge.innerText = "ตรวจเสร็จสิ้น (Finished)";
+        } else if (status === 'EDITING') {
+            badge.className = "badge rounded-pill bg-warning text-dark me-2";
+            badge.innerText = "กำลังแก้ไข (Editing)";
+        }
+    }
+</script>
+{% endblock %}
