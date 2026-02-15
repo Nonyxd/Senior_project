@@ -21,10 +21,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.graphics.barcode import qr
-from reportlab.graphics.shapes import Drawing
-from reportlab.graphics import renderPDF
-
 
 # --- Models ---
 from .models import Exam, StudentResult, Student
@@ -411,14 +407,6 @@ def api_update_result(request, result_id):
 # ==========================================
 @login_required
 def generate_answer_sheet(request, exam_id):
-    # ---------------------------------------------------------
-    # 🔥 IMPORT ตรงนี้ เพื่อแก้ปัญหา NameError แน่นอน 100%
-    # ---------------------------------------------------------
-    from reportlab.graphics.barcode import qr
-    from reportlab.graphics.shapes import Drawing
-    from reportlab.graphics import renderPDF
-    # ---------------------------------------------------------
-
     exam = get_object_or_404(Exam, pk=exam_id)
     students = exam.enrolled_students.all()
     
@@ -454,7 +442,7 @@ def generate_answer_sheet(request, exam_id):
             c.setFont(font_name_use, font_size_use)
             c.setFillColorRGB(0, 0, 0.5)
             
-            # --- 1. General Info ---
+            # --- 1. ข้อความทั่วไป ---
             c.drawString(45*mm, 256*mm, f"{student.first_name} {student.last_name}")
             c.drawString(105*mm, 256*mm, f"{exam.subject_name}")
             c.drawString(165*mm, 256*mm, f"{exam.subject_code}")
@@ -465,60 +453,47 @@ def generate_answer_sheet(request, exam_id):
             c.drawString(105*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
             c.drawString(165*mm, 240*mm, f"{exam.duration_minutes} นาที")
 
-            # --- 2. Auto Mark "X" & Student ID ---
+            # --- 2. Auto Mark "X" & Student ID Number ---
+            
+            # (A) ตั้งค่าโครงสร้างตารางหลัก (ใช้อ้างอิงทั้งเลขและ X)
             GRID_START_X = 24 * mm
             GRID_START_Y = 214 * mm 
             STEP_X = 5.8 * mm
             STEP_Y = 4 * mm
-            OFFSET_X_ONLY = 0 * mm
-            OFFSET_Y_ONLY = 2 * mm
+            
+            # (B) ตัวปรับตำแหน่งเฉพาะ "X" (แก้ตรงนี้เพื่อเลื่อนกากบาทอย่างเดียว)
+            # ใส่ค่าบวก (+) เพื่อเลื่อนขวา/ขึ้น, ค่าลบ (-) เพื่อเลื่อนซ้าย/ลง
+            OFFSET_X_ONLY = 0 * mm   # <--- ปรับซ้าย-ขวา ของ X ตรงนี้
+            OFFSET_Y_ONLY = 2 * mm   # <--- ปรับบน-ล่าง ของ X ตรงนี้
             
             student_id_str = str(student.student_id).strip()
+            
             c.setFillColorRGB(0, 0, 0)
             
             for i, char in enumerate(student_id_str):
                 if char.isdigit():
                     digit = int(char)
-                    pos_x = GRID_START_X + (i * STEP_X)
-                    pos_y = GRID_START_Y - (digit * STEP_Y)
+                    # คำนวณตำแหน่งมาตรฐาน
+                    base_x = GRID_START_X + (i * STEP_X)
+                    base_y = GRID_START_Y - (digit * STEP_Y)
                     
-                    # Mark X
+                    # -----------------------------------------------------------
+                    # 2.1 วาดกากบาท (X) -> บวก Offset เข้าไปเฉพาะตรงนี้
+                    # -----------------------------------------------------------
                     c.setFont("Helvetica", 14)
-                    c.drawString(pos_x + OFFSET_X_ONLY, pos_y + OFFSET_Y_ONLY, "x")
+                    c.drawString(base_x + OFFSET_X_ONLY, base_y + OFFSET_Y_ONLY, "x")
                     
-                    # Write Number
+                    # -----------------------------------------------------------
+                    # 2.2 เขียนตัวเลขรหัสนิสิต (ไม่ได้รับผลกระทบจาก Offset ข้างบน)
+                    # -----------------------------------------------------------
                     header_y = GRID_START_Y + 6.5 * mm 
                     c.setFont("Helvetica", 8) 
-                    c.drawString(pos_x + 1.5*mm, header_y, char)
-
-            # --- 3. QR Code + Exam ID (Top-Left) ---
-            
-            # ตำแหน่งมุมซ้ายบน
-            QR_X = 25 * mm
-            QR_Y = 263 * mm
-            
-            # ข้อมูลใน QR
-            qr_data = f"{exam.id}|{student.student_id}"
-            
-            # สร้าง QR Widget
-            qr_widget = qr.QrCodeWidget(qr_data) # ใช้ตัวแปร qr ที่ import เข้ามาข้างบน
-            qr_widget.barWidth = 25 * mm 
-            qr_widget.barHeight = 25 * mm
-            
-            d = Drawing(25*mm, 25*mm)
-            d.add(qr_widget)
-            renderPDF.draw(d, c, QR_X, QR_Y)
-
-            # เขียนเลข Exam ID เหนือ QR
-            c.setFont("Helvetica-Bold", 12)
-            c.setFillColorRGB(0, 0, 0)
-            c.drawString(QR_X, QR_Y + 26*mm, f"Exam ID: {exam.id}")
+                    c.drawString(base_x + 1.5*mm, header_y, char)
 
         c.showPage()
 
     c.save()
     return response
-
 
 @login_required
 def download_exam_sheet(request, exam_id, student_id=None):

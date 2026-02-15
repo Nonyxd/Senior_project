@@ -41,9 +41,15 @@
         
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
             {% for exam in exams %}
-            <div style="border: 1px solid #ccc; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: white; transition: transform 0.2s;">
+            <div style="border: 1px solid #ccc; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background: white; transition: transform 0.2s; position: relative;">
                 
-                <h3 style="margin-top: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; height: 3.2em; line-height: 1.4em;" 
+                <div style="position: absolute; top: 10px; right: 10px;">
+                    <span style="background: #333; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; font-family: monospace;">
+                        ID: {{ exam.id }}
+                    </span>
+                </div>
+
+                <h3 style="margin-top: 0; padding-right: 40px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; height: 3.2em; line-height: 1.4em;" 
                     title="{{ exam.subject_code }} {{ exam.subject_name }}">
                     <span style="color: #2196F3;">{{ exam.subject_code }}</span><br>
                     <span style="font-size: 0.9em;">{{ exam.subject_name }}</span>

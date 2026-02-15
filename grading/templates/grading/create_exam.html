@@ -3,6 +3,7 @@
 {% block content %}
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <style>
     /* Grid for Choice Selection */
@@ -348,31 +349,57 @@
         document.getElementById("manualKeyInput").style.display = (type === "manual") ? "block" : "none";
     }
 
-    // ฟังก์ชันลบวิชา (เรียก API)
+    // 🔥🔥 ฟังก์ชันลบวิชา (แก้ไขใหม่เป็น SweetAlert2) 🔥🔥
     function deleteSubject(code) {
-        if(!confirm('⚠️ ยืนยันการลบวิชา ' + code + ' ?\n\nคำเตือน: การลบวิชานี้จะทำให้ข้อมูลการสอบและผลคะแนนทั้งหมดภายใต้วิชานี้ถูกลบไปด้วย และไม่สามารถกู้คืนได้')) {
-            return;
-        }
-
-        fetch('{% url "delete_subject_api" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': '{{ csrf_token }}'
+        Swal.fire({
+            title: 'ยืนยันการลบ?',
+            html: `คุณกำลังจะลบวิชา <strong>${code}</strong><br><br>
+                   <span style="color:red; font-size:0.9em;">
+                       คำเตือน: การลบนี้จะทำให้ข้อมูลการสอบและผลคะแนนทั้งหมดภายใต้วิชานี้หายไปทันที!
+                   </span>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'ลบข้อมูลเดี๋ยวนี้',
+            cancelButtonText: 'ยกเลิก',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                return fetch('{% url "delete_subject_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({ subject_code: code })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(response.statusText)
+                    }
+                    return response.json()
+                })
+                .catch(error => {
+                    Swal.showValidationMessage(`Request failed: ${error}`)
+                })
             },
-            body: JSON.stringify({ subject_code: code })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if(data.success) {
-                alert('✅ ' + data.message);
-                location.reload(); // รีโหลดหน้าเพื่ออัปเดต Dropdown
-            } else {
-                alert('❌ เกิดข้อผิดพลาด: ' + data.error);
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((result) => {
+            if (result.isConfirmed) {
+                if (result.value.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'ลบเรียบร้อย',
+                        text: result.value.message,
+                        timer: 2000,
+                        showConfirmButton: false
+                    }).then(() => {
+                        location.reload(); // รีโหลดหน้าใหม่
+                    });
+                } else {
+                    Swal.fire('Error', result.value.error || 'เกิดข้อผิดพลาด', 'error');
+                }
             }
-        })
-        .catch(err => {
-            alert('❌ ไม่สามารถเชื่อมต่อกับ Server ได้');
         });
     }
 
