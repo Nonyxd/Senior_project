@@ -4,7 +4,7 @@ import os
 from django.conf import settings
 from ultralytics import YOLO
 
-# --- Imports สำหรับ PDF Generation (ReportLab) ---
+# --- Imports สำหรับ PDF Generation ---
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
@@ -20,6 +20,7 @@ def get_yolo_model():
     """ โหลดโมเดล YOLO ครั้งเดียว """
     global YOLO_MODEL
     if YOLO_MODEL is None:
+        # 🔥 แก้ Path: ชี้ไปที่ grading/models/yolo26n (1).pt
         model_path = os.path.join(settings.BASE_DIR, 'grading/models/best_new.pt')
         try:
             YOLO_MODEL = YOLO(model_path)
@@ -198,7 +199,6 @@ def scan_selective(image, mapper):
 # ==========================================
 def grade_exam_logic(student_ans, correct_key):
     score = 0; results = {}
-    # เก็บ details รายข้อเพื่อส่งกลับไป views.py
     details = {} 
     
     for q in range(1, 101):
@@ -216,7 +216,7 @@ def grade_exam_logic(student_ans, correct_key):
         else: status = "WRONG"
         
         results[q] = status
-        details[q_str] = stu # เก็บคำตอบดิบ เช่น ['a']
+        details[q_str] = stu 
         
     return score, results, details
 
@@ -246,7 +246,12 @@ def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
     return vis
 
 def generate_key_image(answer_key, output_filename, total_questions=100):
-    template_path = os.path.join(settings.MEDIA_ROOT, 'rectified_output.jpg')
+    # 🔥 แก้ Path: ไปหาที่ static/rectified_output.jpg
+    template_path = os.path.join(settings.BASE_DIR, 'static', 'rectified_output.jpg')
+    if not os.path.exists(template_path): 
+        # Fallback
+        template_path = os.path.join(settings.BASE_DIR, 'static', 'omr_template.jpg')
+    
     if not os.path.exists(template_path): return None 
     img = cv2.imread(template_path)
     if img is None: return None
@@ -264,6 +269,8 @@ def generate_key_image(answer_key, output_filename, total_questions=100):
             box_a = coords['a']; box_e = coords['e']
             cv2.line(vis, (box_a[0]-20, box_a[3]+10), (box_e[2]+20, box_a[3]+10), (0,0,255), 3)
             cv2.putText(vis, "* END *", (box_a[0]+50, box_a[3]+35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
+            
+    # Save Key -> ยังเก็บใน Media/keys เพื่อให้ User ดูได้
     save_dir = os.path.join(settings.MEDIA_ROOT, 'keys')
     os.makedirs(save_dir, exist_ok=True)
     full_save_path = os.path.join(save_dir, output_filename)
@@ -274,6 +281,7 @@ def generate_key_image(answer_key, output_filename, total_questions=100):
 # PART 6: PDF GENERATION (ADDED BACK!)
 # ==========================================
 FONT_NAME = 'THSarabunNew'
+# 🔥 แก้ Path: ไปหาที่ static/fonts/THSarabunNew.ttf
 FONT_PATH = os.path.join(settings.BASE_DIR, 'static', 'fonts', 'THSarabunNew.ttf')
 
 def register_font():
@@ -375,15 +383,18 @@ def process_omr(image_path, answer_key):
     
     filename = os.path.basename(image_path)
     graded_filename = f"graded_{filename}"
-    save_dir = os.path.dirname(image_path).replace('papers', 'graded') # Auto switch folder if needed
-    if not os.path.exists(save_dir): save_dir = os.path.dirname(image_path)
+    
+    # 🔥 แก้ Path: สร้างโฟลเดอร์ media/uploads/graded/ ถ้าไม่มี
+    save_dir = os.path.join(settings.MEDIA_ROOT, 'uploads', 'graded')
+    os.makedirs(save_dir, exist_ok=True)
     
     save_path = os.path.join(save_dir, graded_filename)
     cv2.imwrite(save_path, result_img)
     
+    # คืนค่า URL ที่ถูกต้องสำหรับ Frontend (uploads/graded/...)
     return {
         "student_id": "".join(stu_id_list),
         "score": score,
-        "image_url": graded_filename,
-        "details": details # ส่งข้อมูลดิบกลับไป
+        "image_url": f"uploads/graded/{graded_filename}",
+        "details": details 
     }, None

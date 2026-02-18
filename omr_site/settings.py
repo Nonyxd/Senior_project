@@ -128,3 +128,4 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_REDIRECT_URL = 'index'  # Login เสร็จไปหน้าแรก
 LOGOUT_REDIRECT_URL = 'login' # Logout เสร็จกลับมาหน้า Login
+LOGIN_URL = 'login'  # <--- must have for @login_required decorator

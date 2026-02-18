@@ -153,12 +153,16 @@ def create_exam(request):
         'existing_subjects': existing_subjects, 'range_100': range(1, 101)
     })
 
+# ==========================================
+# แก้ไข: save_exam_confirm (ให้เก็บไฟล์ Excel ลง DB ไม่ลบทิ้ง)
+# ==========================================
 @login_required
 def save_exam_confirm(request):
     data = request.session.get('temp_exam_data')
     if not data: return redirect('create_exam')
     
     if request.method == 'POST':
+        # 1. สร้าง Exam
         exam = Exam.objects.create(
             subject_code=data['subject_code'], subject_name=data['subject_name'],
             section=data['section'], exam_date=data['exam_date'], start_time=data['start_time'],
@@ -166,11 +170,14 @@ def save_exam_confirm(request):
             total_questions=data['total_questions'], answer_key=data['answer_key'],
             key_image=data['key_image_path'], is_active=True
         )
+
+        # 2. จัดการไฟล์ Excel (Roster)
         roster_path = request.session.get('temp_roster_path')
         if roster_path:
             full_path = os.path.join(settings.MEDIA_ROOT, roster_path)
             if os.path.exists(full_path):
                 try:
+                    # อ่านข้อมูลเพื่อเพิ่มนิสิต
                     df = pd.read_excel(full_path)
                     for _, row in df.iterrows():
                         sid = str(row.iloc[3]).strip() if len(row)>3 else str(row.get('StudentID',''))
@@ -179,17 +186,29 @@ def save_exam_confirm(request):
                         if sid and sid.lower()!='nan':
                             stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
                             exam.enrolled_students.add(stu)
-                    os.remove(full_path)
-                except: pass
+                    
+                    # 🔥 [แก้ตรงนี้] บันทึก Path ไฟล์ลง DB และ "ไม่ต้องลบไฟล์ทิ้ง"
+                    # เพื่อให้ delete_exam สามารถตามไปลบไฟล์นี้ได้ภายหลัง
+                    exam.roster_file.name = roster_path
+                    exam.save()
+                    
+                except Exception as e:
+                    print(f"Error processing roster: {e}")
         
+        # เคลียร์ Session
         del request.session['temp_exam_data']
         if 'temp_roster_path' in request.session: del request.session['temp_roster_path']
+        
         messages.success(request, f"สร้างวิชา {exam.subject_code} สำเร็จ")
         return redirect('index')
     
+    # กรณี Cancel
     if 'key_image_path' in data:
         path = os.path.join(settings.MEDIA_ROOT, data['key_image_path'])
-        if os.path.exists(path): os.remove(path)
+        if os.path.exists(path): 
+            try: os.remove(path)
+            except: pass
+            
     del request.session['temp_exam_data']
     return redirect('create_exam')
 
@@ -441,8 +460,8 @@ def generate_answer_sheet(request, exam_id):
             font_size_use = 16 
         except: pass
     
-    bg_image_path = os.path.join(settings.MEDIA_ROOT, 'templates', 'omr_template.jpg') 
-
+    bg_image_path = os.path.join(settings.BASE_DIR, 'static', 'omr_template.jpg')
+    
     if not students.exists(): loop_data = [None]
     else: loop_data = students
 
@@ -535,34 +554,61 @@ def download_exam_sheet(request, exam_id, student_id=None):
     return response
 
 # ==========================================
-# 9. Delete Exam (แก้เป็น: ลบผลสอบถาวร + ซ่อนวิชา)
+# แก้ไข: delete_exam (ลบวิชา -> ลบทุกอย่างรวม Excel)
 # ==========================================
 @login_required
 def delete_exam(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
     
     if request.method == 'POST':
-        # 1. ลบผลสอบและรูปภาพทั้งหมด (Hard Delete) เพื่อคืนพื้นที่
-        results = exam.results.all()
-        deleted_count = results.count()
+        # 🔥 สั่งลบ Object Exam (Hard Delete)
+        # Django จะทำสิ่งต่อไปนี้ให้อัตโนมัติ:
+        # 1. Cascade Delete -> ลบ StudentResult ทั้งหมด -> Signal ลบรูปกระดาษคำตอบ
+        # 2. Signal ของ Exam -> ลบรูปเฉลย (Key) และ ไฟล์ Excel (Roster)
         
-        for res in results:
-            if res.original_image:
-                try: os.remove(os.path.join(settings.MEDIA_ROOT, res.original_image.name))
-                except: pass
-            if res.graded_image:
-                try: os.remove(os.path.join(settings.MEDIA_ROOT, res.graded_image.name))
-                except: pass
-            res.delete()
-
-        # 2. ซ่อนวิชา (Soft Delete)
-        exam.is_active = False 
-        exam.save()
+        subject_code = exam.subject_code
+        exam.delete()
         
-        messages.success(request, f"ลบผลสอบ {deleted_count} ใบ และนำวิชา {exam.subject_code} ออกจากรายการแล้ว")
+        messages.success(request, f"ลบวิชา {subject_code} และข้อมูลทั้งหมด (ผลสอบ, เฉลย, ไฟล์รายชื่อ) เรียบร้อยแล้ว")
         return redirect('index')
         
     return render(request, 'grading/delete_confirm.html', {'exam': exam})
+
+
+# ==========================================
+# เพิ่มใหม่: reset_exam_key (ลบเฉลย -> ลบแค่รูปเฉลย+ผลตรวจ)
+# ==========================================
+@login_required
+def reset_exam_key(request, exam_id):
+    """
+    ใช้สำหรับปุ่ม 'ลบเฉลย' หรือ 'Reset Key'
+    - ลบรูปเฉลย
+    - ลบผลการตรวจ (StudentResult) เพราะเฉลยเปลี่ยน คะแนนเก่าใช้ไม่ได้
+    - แต่ 'ไม่ลบ' ไฟล์ Excel รายชื่อนิสิต
+    """
+    exam = get_object_or_404(Exam, pk=exam_id)
+    
+    if request.method == 'POST':
+        # 1. ลบรูปเฉลย
+        if exam.key_image:
+            if os.path.exists(exam.key_image.path):
+                try: os.remove(exam.key_image.path)
+                except: pass
+            exam.key_image = None
+            
+        # 2. เคลียร์ข้อมูลเฉลยใน DB
+        exam.answer_key = {}
+        
+        # 3. ลบผลการตรวจทั้งหมด (StudentResult)
+        # Signal จะทำงานอัตโนมัติ ลบรูปกระดาษคำตอบของนิสิตทิ้งให้ด้วย
+        deleted_count = exam.results.all().count()
+        exam.results.all().delete()
+        
+        exam.save()
+        messages.success(request, f"รีเซ็ตเฉลยและลบผลการตรวจ {deleted_count} ใบเรียบร้อยแล้ว (รายชื่อนิสิตยังอยู่)")
+        
+    return redirect('edit_exam', exam_id=exam.id)
+
 
 @login_required
 def delete_result(request, result_id):
