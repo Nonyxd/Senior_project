@@ -254,9 +254,13 @@
                     <i class="fas fa-exclamation-triangle"></i> <b>คำเตือน:</b> การลบวิชาในหน้านี้ จะทำการลบ <u>ทุกการสอบ</u> และ <u>ผลคะแนนทั้งหมด</u> ภายใต้วิชานั้นๆ ทันที
                 </div>
                 
-                <div class="list-group">
+                <div class="mb-3">
+                    <input type="text" id="modalSearchInput" class="form-control" placeholder="🔍 ค้นหารหัสวิชา หรือ ชื่อวิชา..." onkeyup="filterModalSubjects()">
+                </div>
+
+                <div class="list-group" id="modalSubjectList">
                     {% for sub in existing_subjects %}
-                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div class="list-group-item d-flex justify-content-between align-items-center subject-item">
                         <div>
                             <span class="fw-bold text-primary">{{ sub.subject_code }}</span>
                             <span class="text-dark mx-2">-</span>
@@ -272,14 +276,11 @@
                     <div class="text-center p-4 text-muted">ไม่พบข้อมูลวิชา</div>
                     {% endfor %}
                 </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิดหน้าต่าง</button>
+
             </div>
         </div>
     </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -347,6 +348,23 @@
     function toggleKeyInput() {
         var type = document.getElementById("keyType").value;
         document.getElementById("manualKeyInput").style.display = (type === "manual") ? "block" : "none";
+    }
+
+    // ฟังก์ชันค้นหาวิชาใน Modal
+    function filterModalSubjects() {
+        let input = document.getElementById('modalSearchInput');
+        let filter = input.value.toLowerCase();
+        let items = document.getElementsByClassName('subject-item');
+
+        for (let i = 0; i < items.length; i++) {
+            let textContent = items[i].textContent || items[i].innerText;
+            if (textContent.toLowerCase().indexOf(filter) > -1) {
+                // คืนค่า display กลับเป็นค่าเดิมของ Bootstrap d-flex
+                items[i].style.setProperty('display', 'flex', 'important'); 
+            } else {
+                items[i].style.setProperty('display', 'none', 'important');
+            }
+        }
     }
 
     // 🔥🔥 ฟังก์ชันลบวิชา (แก้ไขใหม่เป็น SweetAlert2) 🔥🔥

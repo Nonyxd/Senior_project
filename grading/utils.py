@@ -3,6 +3,7 @@ import numpy as np
 import os
 from django.conf import settings
 from ultralytics import YOLO
+import uuid # อย่าลืม import uuid ไว้บนสุดของไฟล์ (ถ้ายังไม่มี)
 
 # --- Imports สำหรับ PDF Generation ---
 from reportlab.pdfgen import canvas
@@ -20,8 +21,8 @@ def get_yolo_model():
     """ โหลดโมเดล YOLO ครั้งเดียว """
     global YOLO_MODEL
     if YOLO_MODEL is None:
-        # 🔥 แก้ Path: ชี้ไปที่ grading/models/yolo26n (1).pt
-        model_path = os.path.join(settings.BASE_DIR, 'grading/models/best_new.pt')
+        # 🔥 ชี้ไปที่โมเดล best_nony.pt
+        model_path = os.path.join(settings.BASE_DIR, 'grading/models/best_nony.pt')
         try:
             YOLO_MODEL = YOLO(model_path)
             print(f"✅ Loaded YOLO: {model_path}")
@@ -75,13 +76,6 @@ def calculate_overlap(boxA, boxB):
     if boxAArea == 0: return 0
     return interArea / float(boxAArea)
 
-def get_pixel_count(thresh_img, box):
-    x1, y1, x2, y2 = box
-    margin = 4
-    if x2-x1 <= 2*margin or y2-y1 <= 2*margin: return 0
-    roi = thresh_img[y1+margin:y2-margin, x1+margin:x2-margin]
-    return cv2.countNonZero(roi)
-
 # ==========================================
 # PART 3: GRID MAPPER
 # ==========================================
@@ -129,15 +123,9 @@ class GridMapper:
         return id_grid
 
 # ==========================================
-# PART 4: SCANNING LOGIC (HYBRID)
+# PART 4: SCANNING LOGIC (YOLO ONLY)
 # ==========================================
 def scan_selective(image, mapper):
-    # 1. Prepare Data
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                   cv2.THRESH_BINARY_INV, 51, 25)
-    
-    # 2. YOLO
     model = get_yolo_model()
     yolo_boxes = []
     if model:
@@ -146,30 +134,20 @@ def scan_selective(image, mapper):
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             yolo_boxes.append({'box': [int(x1), int(y1), int(x2), int(y2)], 'conf': float(box.conf[0])})
 
-    # A. Student ID (Hybrid)
+    # A. Student ID (YOLO Only)
     student_id_list = []
     id_grid = mapper.get_student_id_coords()
-    ID_PIXEL_THRESH = 150 
     
     for col in range(10):
         found_digit = "?"
-        max_score = 0 
+        best_conf = 0.0
         for digit in range(10):
             grid_box = id_grid[col][digit]
-            pixels = get_pixel_count(thresh, grid_box)
-            
-            yolo_hit = False
             for ybox in yolo_boxes:
                 if calculate_overlap(grid_box, ybox['box']) > 0.15:
-                    yolo_hit = True; break
-            
-            score = 0
-            if pixels > ID_PIXEL_THRESH: score += 100
-            if yolo_hit: score += 50
-            
-            if score > 0 and score > max_score:
-                max_score = score
-                found_digit = str(digit)
+                    if ybox['conf'] > best_conf:
+                        best_conf = ybox['conf']
+                        found_digit = str(digit)
         student_id_list.append(found_digit)
 
     # B. Exam Answers (YOLO Only)
@@ -183,7 +161,9 @@ def scan_selective(image, mapper):
             is_found = False
             for ybox in yolo_boxes:
                 if calculate_overlap(grid_box, ybox['box']) > 0.15:
-                    is_found = True; yolo_conf = ybox['conf']; break
+                    is_found = True
+                    yolo_conf = ybox['conf']
+                    break
             if is_found:
                 found_choices.append({'choice': ch, 'conf': yolo_conf})
         
@@ -230,9 +210,12 @@ def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
         cor_str = cor_list[0] if cor_list else None
         
         for ch, box in coords.items():
+            # 🔥 วาดกรอบสี่เหลี่ยมสำหรับสิ่งที่นิสิตตอบ
             if ch in stu_list:
                 color = (0, 255, 0) if status == "CORRECT" else (0, 255, 255) if status == "DOUBLE" else (0, 0, 255)
                 cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), color, 2)
+            
+            # 🔥 วาดกากบาทสีเขียว ทับข้อเฉลยที่ถูก (เมื่อตอบผิด หรือไม่ได้ตอบ)
             if status in ["WRONG", "EMPTY", "DOUBLE"] and ch == cor_str:
                 cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
                 cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 0), 2)
@@ -242,11 +225,11 @@ def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
         if digit_str != "?":
             digit = int(digit_str)
             box = id_grid[col][digit]
+            # วาดกรอบสี่เหลี่ยมสีน้ำเงินตรงรหัสนิสิต
             cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), (255, 0, 0), 2)
     return vis
 
 def generate_key_image(answer_key, output_filename, total_questions=100):
-    # 🔥 แก้ Path: ไปหาที่ static/rectified_output.jpg
     template_path = os.path.join(settings.BASE_DIR, 'static', 'rectified_output.jpg')
     if not os.path.exists(template_path): 
         # Fallback
@@ -270,7 +253,7 @@ def generate_key_image(answer_key, output_filename, total_questions=100):
             cv2.line(vis, (box_a[0]-20, box_a[3]+10), (box_e[2]+20, box_a[3]+10), (0,0,255), 3)
             cv2.putText(vis, "* END *", (box_a[0]+50, box_a[3]+35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
             
-    # Save Key -> ยังเก็บใน Media/keys เพื่อให้ User ดูได้
+    # Save Key -> เก็บใน Media/keys เพื่อให้ User ดูได้
     save_dir = os.path.join(settings.MEDIA_ROOT, 'keys')
     os.makedirs(save_dir, exist_ok=True)
     full_save_path = os.path.join(save_dir, output_filename)
@@ -278,10 +261,9 @@ def generate_key_image(answer_key, output_filename, total_questions=100):
     return f'keys/{output_filename}'
 
 # ==========================================
-# PART 6: PDF GENERATION (ADDED BACK!)
+# PART 6: PDF GENERATION
 # ==========================================
 FONT_NAME = 'THSarabunNew'
-# 🔥 แก้ Path: ไปหาที่ static/fonts/THSarabunNew.ttf
 FONT_PATH = os.path.join(settings.BASE_DIR, 'static', 'fonts', 'THSarabunNew.ttf')
 
 def register_font():
@@ -381,17 +363,19 @@ def process_omr(image_path, answer_key):
     # 3. DRAW
     result_img = draw_result_on_image(warped, mapper, stu_ans, answer_key, results, stu_id_list)
     
+    # 🔥🔥🔥 แก้ไขตรงนี้: สร้างชื่อไฟล์ให้ไม่ซ้ำกัน (ป้องกัน Browser Cache)
     filename = os.path.basename(image_path)
-    graded_filename = f"graded_{filename}"
+    name, ext = os.path.splitext(filename)
+    unique_id = uuid.uuid4().hex[:6] # สุ่มรหัส 6 ตัว
+    graded_filename = f"graded_{name}_{unique_id}{ext}"
+    # ผลลัพธ์จะได้ชื่อไฟล์เช่น: graded_15703_a1b2c3.jpg
     
-    # 🔥 แก้ Path: สร้างโฟลเดอร์ media/uploads/graded/ ถ้าไม่มี
     save_dir = os.path.join(settings.MEDIA_ROOT, 'uploads', 'graded')
     os.makedirs(save_dir, exist_ok=True)
     
     save_path = os.path.join(save_dir, graded_filename)
     cv2.imwrite(save_path, result_img)
     
-    # คืนค่า URL ที่ถูกต้องสำหรับ Frontend (uploads/graded/...)
     return {
         "student_id": "".join(stu_id_list),
         "score": score,

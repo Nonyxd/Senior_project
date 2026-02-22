@@ -9,20 +9,6 @@
 
 <div class="container" style="font-family: 'Sarabun', sans-serif; padding: 20px;">
     
-    <div style="background-color: #333; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 5px; margin-bottom: 20px;">
-        <h2 style="margin: 0;"><i class="fas fa-chalkboard-teacher"></i> ระบบจัดการการสอบ</h2>
-        
-        <div style="text-align: right;">
-            <span style="font-size: 16px; margin-right: 15px;">
-                สวัสดี, <b>{{ user.username }}</b> 
-                <span style="background: #555; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 5px;">
-                    {% if user.is_superuser %}ADMIN{% else %}USER{% endif %}
-                </span>
-            </span>
-            <a href="{% url 'logout_confirm' %}" style="background: #f44336; color: white; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-size: 14px;">ออกจากระบบ</a>
-        </div>
-    </div>
-
     {% if messages %}
         {% for message in messages %}
             <div style="padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; 
@@ -34,7 +20,7 @@
 
     <div style="padding: 0 10px;">
         
-        <a href="{% url 'create_exam' %}" class="btn" style="background:#2196F3; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
+        <a href="{% url 'create_exam' %}" class="btn" style="background:#333; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
             <i class="fas fa-plus"></i> สร้างการสอบใหม่
         </a>
         <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">

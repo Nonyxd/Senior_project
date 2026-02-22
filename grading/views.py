@@ -554,26 +554,41 @@ def download_exam_sheet(request, exam_id, student_id=None):
     return response
 
 # ==========================================
-# แก้ไข: delete_exam (ลบวิชา -> ลบทุกอย่างรวม Excel)
+# แก้ไข: delete_exam (เปลี่ยนเป็น Soft Delete + ลบไฟล์ Manual)
 # ==========================================
 @login_required
 def delete_exam(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
     
     if request.method == 'POST':
-        # 🔥 สั่งลบ Object Exam (Hard Delete)
-        # Django จะทำสิ่งต่อไปนี้ให้อัตโนมัติ:
-        # 1. Cascade Delete -> ลบ StudentResult ทั้งหมด -> Signal ลบรูปกระดาษคำตอบ
-        # 2. Signal ของ Exam -> ลบรูปเฉลย (Key) และ ไฟล์ Excel (Roster)
-        
         subject_code = exam.subject_code
-        exam.delete()
         
-        messages.success(request, f"ลบวิชา {subject_code} และข้อมูลทั้งหมด (ผลสอบ, เฉลย, ไฟล์รายชื่อ) เรียบร้อยแล้ว")
+        # 1. ลบรูปเฉลย (Key Image)
+        if exam.key_image:
+            if os.path.exists(exam.key_image.path):
+                try: os.remove(exam.key_image.path)
+                except: pass
+            exam.key_image = None
+            
+        # 2. ลบไฟล์ Excel (Roster File)
+        if hasattr(exam, 'roster_file') and exam.roster_file:
+            if os.path.exists(exam.roster_file.path):
+                try: os.remove(exam.roster_file.path)
+                except: pass
+            exam.roster_file = None
+            
+        # 3. ลบผลสอบและรูปกระดาษคำตอบของนิสิตทั้งหมดทิ้ง (เคลียร์พื้นที่)
+        exam.results.all().delete()
+        
+        # 4. 🔥 ปิดการมองเห็น (Soft Delete) แทนการใช้ exam.delete()
+        exam.is_active = False 
+        exam.answer_key = {} # เคลียร์เฉลยทิ้ง
+        exam.save()
+        
+        messages.success(request, f"ลบข้อมูลวิชา {subject_code} เรียบร้อยแล้ว (รหัสวิชายังคงอยู่ในระบบ)")
         return redirect('index')
         
     return render(request, 'grading/delete_confirm.html', {'exam': exam})
-
 
 # ==========================================
 # เพิ่มใหม่: reset_exam_key (ลบเฉลย -> ลบแค่รูปเฉลย+ผลตรวจ)
