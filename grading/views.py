@@ -585,7 +585,6 @@ def delete_exam(request, exam_id):
         exam.answer_key = {} # เคลียร์เฉลยทิ้ง
         exam.save()
         
-        messages.success(request, f"ลบข้อมูลวิชา {subject_code} เรียบร้อยแล้ว (รหัสวิชายังคงอยู่ในระบบ)")
         return redirect('index')
         
     return render(request, 'grading/delete_confirm.html', {'exam': exam})

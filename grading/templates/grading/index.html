@@ -9,14 +9,6 @@
 
 <div class="container" style="font-family: 'Sarabun', sans-serif; padding: 20px;">
     
-    {% if messages %}
-        {% for message in messages %}
-            <div style="padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; 
-                        {% if message.tags == 'success' %}color: #155724; background-color: #d4edda; border-color: #c3e6cb;{% else %}color: #721c24; background-color: #f8d7da; border-color: #f5c6cb;{% endif %}">
-                <i class="fas {% if message.tags == 'success' %}fa-check-circle{% else %}fa-exclamation-circle{% endif %}"></i> {{ message }}
-            </div>
-        {% endfor %}
-    {% endif %}
 
     <div style="padding: 0 10px;">
         
