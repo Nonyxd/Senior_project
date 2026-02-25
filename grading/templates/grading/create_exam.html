@@ -198,7 +198,7 @@
 
             <div>
                 <label style="color: #d32f2f;">Total Questions (Limit):</label>
-                <input type="number" name="total_questions" value="{{ saved.total_questions|default:100 }}" min="1" max="120">
+                <input type="number" name="total_questions" id="totalQuestions" value="{{ saved.total_questions|default:100 }}" min="1" max="120" oninput="updateQuestionLimit()">
             </div>
         </div>
 
@@ -221,7 +221,7 @@
                     {% for i in range_100 %}
                     <div class="question-item">
                         <label>{{ i }}</label>
-                        <select name="q_{{ i }}">
+                        <select name="q_{{ i }}" class="question-select" data-qnum="{{ i }}">
                             <option value="">-</option>
                             <option value="a">A</option>
                             <option value="b">B</option>
@@ -367,6 +367,36 @@
         }
     }
 
+    // 🔥🔥 ฟังก์ชันล็อกข้อสอบที่เกิน Limit 🔥🔥
+    function updateQuestionLimit() {
+        let limit = parseInt(document.getElementById('totalQuestions').value) || 100;
+        let selects = document.querySelectorAll('.question-select');
+        
+        selects.forEach(function(select) {
+            let qNum = parseInt(select.getAttribute('data-qnum'));
+            let parentDiv = select.closest('.question-item');
+            
+            if (qNum > limit) {
+                // ล็อกและเคลียร์ค่า
+                select.disabled = true;
+                select.value = ""; 
+                parentDiv.style.opacity = '0.4'; 
+                parentDiv.style.background = '#e9ecef';
+            } else {
+                // ปลดล็อก
+                select.disabled = false;
+                parentDiv.style.opacity = '1';
+                parentDiv.style.background = '#fff';
+            }
+        });
+    }
+
+    // เรียกใช้งานตอนเปิดหน้าเว็บครั้งแรก
+    $(document).ready(function() {
+        updateQuestionLimit();
+    });
+
+    
     // 🔥🔥 ฟังก์ชันลบวิชา (แก้ไขใหม่เป็น SweetAlert2) 🔥🔥
     function deleteSubject(code) {
         Swal.fire({

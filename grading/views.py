@@ -156,6 +156,9 @@ def create_exam(request):
 # ==========================================
 # แก้ไข: save_exam_confirm (ให้เก็บไฟล์ Excel ลง DB ไม่ลบทิ้ง)
 # ==========================================
+# ==========================================
+# แก้ไข: save_exam_confirm (ดึงรายชื่อเด็กเก่ามาให้อัตโนมัติ)
+# ==========================================
 @login_required
 def save_exam_confirm(request):
     data = request.session.get('temp_exam_data')
@@ -194,6 +197,12 @@ def save_exam_confirm(request):
                     
                 except Exception as e:
                     print(f"Error processing roster: {e}")
+        else:
+            # 🔥 [เพิ่มตรงนี้] ถ้าไม่ได้อัปโหลด Excel ใหม่ ให้ดึงรายชื่อนิสิตจากข้อสอบเก่ามาใส่ให้อัตโนมัติ!
+            previous_exam = Exam.objects.filter(subject_code=data['subject_code']).exclude(id=exam.id).order_by('-created_at').first()
+            if previous_exam and previous_exam.enrolled_students.exists():
+                exam.enrolled_students.set(previous_exam.enrolled_students.all())
+                print(f"✅ Auto-imported {exam.enrolled_students.count()} students from previous exam.")
         
         # เคลียร์ Session
         del request.session['temp_exam_data']
