@@ -32,6 +32,9 @@ from .models import Exam, StudentResult, Student
 # --- Utils ---
 from .utils import process_omr, generate_key_image, generate_exam_pdf
 
+from django.utils import timezone
+import datetime
+
 # ==========================================
 # 0. API & Helpers
 # ==========================================
@@ -76,9 +79,54 @@ def delete_subject_api(request):
 # ==========================================
 # 1. Dashboard & Create
 # ==========================================
+# ==========================================
+# แก้ไข: หน้า Dashboard เพิ่มการคำนวณสถานะการสอบ (อัปเดตเรื่อง Timezone)
+# ==========================================
 @login_required
 def index(request):
     exams = Exam.objects.filter(is_active=True).order_by('-created_at')
+    
+    # 🔥 ดึงเวลาปัจจุบัน และแปลงให้เป็นเวลาของไทย (Asia/Bangkok)
+    now = timezone.now()
+    if timezone.is_aware(now):
+        now = timezone.localtime(now)
+    
+    for exam in exams:
+        # กำหนดค่าเริ่มต้น (รอสอบ)
+        exam.status_text = "รอสอบ"
+        exam.status_color = "#9e9e9e" # สีเทา
+        exam.text_color = "#ffffff"
+
+        if exam.exam_date and exam.start_time:
+            # นำวันที่และเวลามาต่อกัน
+            exam_dt = datetime.datetime.combine(exam.exam_date, exam.start_time)
+            
+            # ปรับ Timezone ของเวลาสอบให้ตรงกับระบบ
+            if timezone.is_aware(now) and timezone.is_naive(exam_dt):
+                exam_dt = timezone.make_aware(exam_dt)
+            
+            # คำนวณเวลาสอบเสร็จ
+            duration = exam.duration_minutes if exam.duration_minutes else 120
+            end_dt = exam_dt + datetime.timedelta(minutes=duration)
+
+            # 1. เช็คว่าเลยเวลาสอบเสร็จหรือยัง?
+            if now >= end_dt:
+                enrolled_count = exam.enrolled_students.count() 
+                graded_count = exam.results.count()             
+                
+                if enrolled_count > 0 and graded_count >= enrolled_count:
+                    exam.status_text = "ตรวจครบหมดแล้ว"
+                    exam.status_color = "#4CAF50" # สีเขียว
+                else:
+                    exam.status_text = "การสอบจบลงแล้ว"
+                    exam.status_color = "#FFEB3B" # สีเหลือง
+                    exam.text_color = "#333333"   
+            
+            # 2. เช็คว่ากำลังอยู่ในช่วงเวลาสอบหรือไม่?
+            elif now >= exam_dt and now < end_dt:
+                exam.status_text = "กำลังสอบ"
+                exam.status_color = "#2196F3" # สีฟ้า
+                
     return render(request, 'grading/index.html', {'exams': exams})
 
 @login_required

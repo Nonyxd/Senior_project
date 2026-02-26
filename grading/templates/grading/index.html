@@ -27,6 +27,12 @@
                     </span>
                 </div>
 
+                <div style="margin-bottom: 8px;">
+                    <span style="background: {{ exam.status_color }}; color: {{ exam.text_color }}; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        {{ exam.status_text }}
+                    </span>
+                </div>
+
                 <h3 style="margin-top: 0; padding-right: 40px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; height: 3.2em; line-height: 1.4em;" 
                     title="{{ exam.subject_code }} {{ exam.subject_name }}">
                     <span style="color: #2196F3;">{{ exam.subject_code }}</span><br>
