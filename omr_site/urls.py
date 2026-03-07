@@ -29,6 +29,7 @@ urlpatterns = [
     # --- Grading & Students ---
     path('grade/<int:exam_id>/', views.grade_exam_view, name='grade_exam'),
     path('exam/<int:exam_id>/upload_students/', views.upload_students, name='upload_students'),
+    path('result/<int:result_id>/verify/', views.verify_paper_status, name='verify_paper_status'),
     
     # --- Edit Result (Individual) - แก้ไข/ลบคะแนนรายบุคคล ---
     path('result/<int:result_id>/edit/', views.edit_result, name='edit_result'),

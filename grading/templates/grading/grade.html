@@ -153,7 +153,14 @@
                     </thead>
                     <tbody>
                         {% for item in student_dashboard %}
-                        <tr class="{% if item.status == 'SUBMITTED' %}table-success-light{% endif %}">
+                        <tr class="
+                            {% if item.result %}
+                                {% if item.result.status == 'BLUE' %} table-primary 
+                                {% elif item.result.status == 'RED' %} table-danger 
+                                {% elif item.result.status == 'GREEN' %} table-success 
+                                {% endif %}
+                            {% endif %}
+                        ">
                             
                             <td class="ps-4 fw-bold text-dark">{{ item.info.student_id }}</td>
                             
@@ -161,17 +168,35 @@
                             
                             <td class="text-center">
                                 {% if item.status == 'SUBMITTED' %}
-                                    {% if item.result.status == 'FINISHED' %}
-                                        <span class="badge bg-success rounded-pill px-3 py-2">
-                                            <i class="fas fa-check-circle me-1"></i> ตรวจเสร็จแล้ว
+                                    {% if item.result.status == 'GREEN' %}
+                                        <span class="badge bg-success rounded-pill px-3 py-2 shadow-sm">
+                                            <i class="fas fa-check-double me-1"></i> ตรวจสอบแล้ว
+                                        </span>
+                                    {% elif item.result.status == 'BLUE' %}
+                                        <span class="badge bg-primary rounded-pill px-3 py-2 mb-1 shadow-sm">
+                                            <i class="fas fa-check me-1"></i> ปกติ (ไม่มี Error)
+                                        </span>
+                                    {% elif item.result.status == 'RED' %}
+                                        <span class="badge bg-danger rounded-pill px-3 py-2 mb-1 shadow-sm">
+                                            <i class="fas fa-exclamation-triangle me-1"></i> พบปัญหา/Error
                                         </span>
                                     {% else %}
-                                        <span class="badge bg-warning text-dark rounded-pill px-3 py-2">
-                                            <i class="fas fa-sync-alt me-1"></i> กำลังตรวจ
+                                        <span class="badge bg-warning text-dark rounded-pill px-3 py-2 mb-1 shadow-sm">
+                                            <i class="fas fa-sync-alt me-1"></i> กำลังประมวลผล
                                         </span>
                                     {% endif %}
+
+                                    {% if item.result.status == 'RED' or item.result.status == 'BLUE' %}
+                                        <form action="{% url 'verify_paper_status' item.result.id %}" method="POST" class="mt-1">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="next" value="{{ request.path }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-success rounded-pill" style="font-size: 0.8rem;">
+                                                <i class="fas fa-thumbs-up"></i> ยืนยันความถูกต้อง
+                                            </button>
+                                        </form>
+                                    {% endif %}
                                 {% else %}
-                                    <span class="badge bg-danger rounded-pill px-3 py-2">
+                                    <span class="badge bg-secondary rounded-pill px-3 py-2">
                                         <i class="fas fa-times-circle me-1"></i> ขาดสอบ
                                     </span>
                                 {% endif %}
@@ -179,7 +204,7 @@
 
                             <td class="text-center">
                                 {% if item.result %}
-                                    <span class="fw-bold text-primary fs-5">{{ item.result.score }}</span>
+                                    <span class="fw-bold text-dark fs-5">{{ item.result.score }}</span>
                                     <span class="text-muted small">/ {{ exam.total_questions }}</span>
                                 {% else %}
                                     <span class="text-muted">-</span>
@@ -207,8 +232,8 @@
                             <td class="text-center">
                                 {% if item.result %}
                                     <div class="btn-group" role="group">
-                                        <a href="{% url 'edit_result' item.result.id %}" class="btn btn-sm btn-outline-primary" title="ดูผล/แก้ไขละเอียด">
-                                            <i class="fas fa-eye"></i>
+                                        <a href="{% url 'edit_result' item.result.id %}" class="btn btn-sm btn-outline-dark" title="ดูผล/แก้ไขละเอียด">
+                                            <i class="fas fa-search"></i>
                                         </a>
                                         <button type="button" class="btn btn-sm btn-outline-danger" onclick="confirmDelete('{{ item.result.id }}')" title="ลบผลสอบ">
                                             <i class="fas fa-trash"></i>

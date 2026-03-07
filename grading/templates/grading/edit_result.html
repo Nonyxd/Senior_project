@@ -72,13 +72,13 @@
                 <div class="list-group">
                     {% for q_num, q_data in combined_data.items %}
                     <div class="list-group-item d-flex justify-content-between align-items-center question-row 
-                        {% if not q_data.is_correct %}orange-warning-box{% endif %}" 
+                        {% if q_data.is_correct %} list-group-item-success {% elif q_data.error_reason == 'EMPTY' %} list-group-item-warning {% elif q_data.error_reason == 'MULTIPLE' %} bg-orange-light {% else %} list-group-item-danger {% endif %}" 
                         id="row-{{ q_num }}">
                         
                         <div class="d-flex align-items-center">
-                            <div class="fw-bold me-3 text-secondary" style="width: 30px;">{{ q_num }}.</div>
+                            <div class="fw-bold me-3 text-dark" style="width: 30px;">{{ q_num }}.</div>
                             <div class="me-3">
-                                <span class="badge bg-light text-dark border" title="เฉลย">Key: {{ q_data.key|join:"," }}</span>
+                                <span class="badge bg-light text-dark border border-secondary" title="เฉลย">Key: {{ q_data.key|join:"," }}</span>
                                 <span class="mx-1 text-muted"><small>vs</small></span>
                                 
                                 <span class="badge {% if q_data.is_correct %}bg-success{% else %}bg-danger{% endif %}" title="คำตอบนิสิต">
@@ -86,7 +86,7 @@
                                 </span>
 
                                 {% if not q_data.is_correct %}
-                                    <span class="ms-2 badge bg-secondary" style="font-size: 0.7em;">
+                                    <span class="ms-2 badge bg-dark bg-opacity-75" style="font-size: 0.7em;">
                                         {% if q_data.error_reason == 'EMPTY' %}
                                             ไม่ได้กา
                                         {% elif q_data.error_reason == 'MULTIPLE' %}
@@ -99,16 +99,16 @@
                             </div>
                         </div>
 
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-outline-success" onclick="manualUpdate('{{ q_num }}', true)" title="ให้คะแนน">
+                        <div class="btn-group shadow-sm" role="group">
+                            <button class="btn btn-sm btn-light text-success border-success" onclick="manualUpdate('{{ q_num }}', true)" title="ให้คะแนน">
                                 <i class="fas fa-check"></i> ถูก
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="manualUpdate('{{ q_num }}', false)" title="หักคะแนน">
+                            <button class="btn btn-sm btn-light text-danger border-danger" onclick="manualUpdate('{{ q_num }}', false)" title="หักคะแนน">
                                 <i class="fas fa-times"></i> ผิด
                             </button>
                         </div>
                     </div>
-                    {% endfor %}
+                    {% endfor %} </div>
                 </div>
             </div>
         </div>
@@ -116,14 +116,21 @@
 </div>
 
 <style>
-    .orange-warning-box { 
-        background-color: #fff3e0 !important; 
-        border-left: 5px solid #ff9800 !important; 
+    /* 🟠 สร้างสีส้มอ่อนๆ สำหรับข้อที่กาเบิ้ล */
+    .bg-orange-light { 
+        background-color: #ffe0b2 !important; 
+        border-color: #ffb74d !important;
+    }
+    
+    .question-row {
+        transition: all 0.2s ease-in-out;
+        border-width: 2px !important;
     }
     .question-row:hover { 
-        background-color: #f8f9fa; 
+        filter: brightness(0.95);
         cursor: pointer; 
     }
+    
     /* Scrollbar Styling */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #f1f1f1; }

@@ -24,6 +24,7 @@ urlpatterns = [
     path('api/parse_excel/', views.api_parse_excel, name='api_parse_excel'),
 
     # --- Grading & Students ---
+    path('result/<int:result_id>/verify/', views.verify_paper_status, name='verify_paper_status'),
     path('grade/<int:exam_id>/', views.grade_exam_view, name='grade_exam'),
     path('exam/<int:exam_id>/upload_students/', views.upload_students, name='upload_students'),
     
@@ -43,6 +44,7 @@ urlpatterns = [
     path('print_sheets/<int:exam_id>/', views.generate_answer_sheet, name='print_sheets'),
     # เผื่อไว้สำหรับแบบธรรมดา (ถ้ามี)
     path('download_sheet/<int:exam_id>/', views.download_exam_sheet, name='download_exam_sheet'),
+    
 ]
 
 # รองรับการโชว์รูปภาพในโหมด Debug

@@ -46,10 +46,11 @@ class Exam(models.Model):
 # 3. ตารางผลการตรวจ (StudentResult)
 # ==========================================
 class StudentResult(models.Model):
+    # 🚩 1. เปลี่ยน STATUS_CHOICES เป็นระบบสีแทนของเดิม
     STATUS_CHOICES = [
-        ('OCR', 'ตรวจจากเครื่อง (OCR Scanned)'),
-        ('EDITING', 'กำลังแก้ไข (Editing)'), 
-        ('FINISHED', 'แก้ไขเสร็จสิ้น (Manual Finished)'),
+        ('BLUE', 'ตรวจผ่าน (ไม่มีข้อผิดพลาด)'), 
+        ('RED', 'พบข้อผิดพลาด (ต้องตรวจสอบ)'),
+        ('GREEN', 'ตรวจสอบด้วยคนแล้ว (Verified)'),
     ]
 
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name='results')
@@ -59,16 +60,18 @@ class StudentResult(models.Model):
     
     original_image = models.ImageField(upload_to='uploads/papers/')
     graded_image = models.ImageField(upload_to='uploads/graded/', blank=True, null=True)
-    # เพิ่ม debug_image ให้ครบตามที่เราเคยทำ
     debug_image = models.ImageField(upload_to='uploads/graded/', blank=True, null=True)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OCR')
+    # 🚩 2. อัปเดตฟิลด์ status ให้ใช้ Default เป็น RED (เดี๋ยว views.py จะเปลี่ยนเป็น BLUE ให้เองถ้าไม่เจอ Error)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RED')
+    
     results_data = models.JSONField(default=dict, blank=True)
     last_updated = models.DateTimeField(auto_now=True)
     
     def __str__(self):
         return f"{self.student_id_ocr} - {self.exam.subject_code}"
-
+    
+    
 # ==========================================
 # 🔥 SIGNALS: จัดการลบไฟล์ออกจากเครื่องอัตโนมัติ
 # (ใส่ไว้ล่างสุดของไฟล์ models.py)

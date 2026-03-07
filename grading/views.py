@@ -289,6 +289,7 @@ def upload_students(request, exam_id):
             messages.error(request, f"Error: {e}")
     return render(request, 'grading/upload_students.html', {'exam': exam})
 
+
 # ==========================================
 # 5. Grade Exam (Catch-all + Missing List)
 # ==========================================
@@ -301,8 +302,9 @@ def grade_exam_view(request, exam_id):
         files = request.FILES.getlist('image')
         c = 0
         for f in files:
+            # เปลี่ยน status ตั้งต้นเป็น 'RED' ไว้ก่อน
             res = StudentResult.objects.create(
-                exam=exam, student_id_ocr="Processing...", score=0, original_image=f, status='OCR'
+                exam=exam, student_id_ocr="Processing...", score=0, original_image=f, status='RED'
             )
             data, err = process_omr(res.original_image.path, exam.answer_key)
             if data:
@@ -310,6 +312,9 @@ def grade_exam_view(request, exam_id):
                 res.student_id_ocr = clean_id
                 res.score = data.get('score', 0)
                 res.results_data = data.get('details', {})
+                
+                # 🚩 เช็คสถานะ Error จากที่ OMR ส่งมา
+                has_error = data.get('has_error', True) # ถ้าหาไม่เจอ ให้มองว่า Error ไปก่อน
                 
                 # Fix Path
                 if 'image_url' in data:
@@ -329,12 +334,23 @@ def grade_exam_view(request, exam_id):
                     res.student = Student.objects.get(student_id=clean_id)
                 except Student.DoesNotExist:
                     res.student = None
+                    has_error = True # 🚩 ถ้ารหัสนิสิตไม่ตรงกับฐานข้อมูล ก็ให้ถือว่าเป็น Error (RED) ไปเลย
+
+                # 🚩 กำหนดสีลงฐานข้อมูล
+                if has_error:
+                    res.status = 'RED'
+                else:
+                    res.status = 'BLUE'
+                    
                 res.save()
                 c += 1
             else:
                 print(f"Error: {err}")
+                
         messages.success(request, f"ตรวจเรียบร้อย {c} ใบ")
         return redirect('grade_exam', exam_id=exam.id)
+
+    
 
     # Display Logic
     all_results = StudentResult.objects.filter(exam=exam).select_related('student')
@@ -789,3 +805,26 @@ def save_edit_confirm(request, exam_id):
 @login_required
 def logout_confirm_view(request):
     return render(request, 'registration/logout_confirm.html')
+
+
+# ==========================================
+# เพิ่มใหม่: ฟังก์ชันเปลี่ยนสีเป็น GREEN เมื่อคนตรวจยืนยัน
+# ==========================================
+@login_required
+@require_POST
+def verify_paper_status(request, result_id):
+    result = get_object_or_404(StudentResult, pk=result_id)
+    exam_id = result.exam.id
+    
+    # 🚩 เปลี่ยนสถานะเป็น GREEN (ตรวจสอบด้วยคนแล้ว)
+    result.status = 'GREEN'
+    result.save()
+    
+    messages.success(request, f"ยืนยันความถูกต้องให้นิสิตรหัส {result.student_id_ocr} เรียบร้อยแล้ว (สีเขียว)")
+    
+    # ดึงค่าว่าตอนนี้ผู้ใช้อยู่หน้าไหน (เผื่อกลับไปหน้าเดิมได้)
+    next_url = request.POST.get('next', '')
+    if next_url:
+        return redirect(next_url)
+    
+    return redirect('grade_exam', exam_id=exam_id)

@@ -177,10 +177,16 @@ def scan_selective(image, mapper):
 # ==========================================
 # PART 5: GRADING & DRAWING
 # ==========================================
-def grade_exam_logic(student_ans, correct_key):
-    score = 0; results = {}
+def grade_exam_logic(student_ans, correct_key, student_id_list):
+    score = 0
+    results = {}
     details = {} 
+    has_error = False # 🚩 เช็ค Error
     
+    # เช็ครหัสนิสิตว่าอ่านได้ครบไหม
+    if "?" in student_id_list:
+        has_error = True
+
     for q in range(1, 101):
         q_str = str(q)
         stu = student_ans.get(q, [])
@@ -188,17 +194,24 @@ def grade_exam_logic(student_ans, correct_key):
         cor_str = cor_list[0] if cor_list else None
         
         status = "UNKNOWN"
-        if not cor_str: status = "UNKNOWN"
-        elif len(stu) > 1: status = "DOUBLE"
-        elif len(stu) == 0: status = "EMPTY"
+        if not cor_str: 
+            status = "UNKNOWN"
+        elif len(stu) > 1: 
+            status = "DOUBLE"
+            has_error = True # 🚩 กาเบิ้ล
+        elif len(stu) == 0: 
+            status = "EMPTY"
+            has_error = True # 🚩 ลืมกา
         elif len(stu) == 1 and stu[0] == cor_str:
-            score += 1; status = "CORRECT"
-        else: status = "WRONG"
+            score += 1
+            status = "CORRECT"
+        else: 
+            status = "WRONG"
         
         results[q] = status
         details[q_str] = stu 
         
-    return score, results, details
+    return score, results, details, has_error
 
 def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
     vis = img.copy()
@@ -210,29 +223,41 @@ def draw_result_on_image(img, mapper, stu_ans, key, results, student_id_list):
         cor_str = cor_list[0] if cor_list else None
         
         for ch, box in coords.items():
-            # 🔥 วาดกรอบสี่เหลี่ยมสำหรับสิ่งที่นิสิตตอบ
+            # 1. วาดกรอบสิ่งที่นิสิตกามา (ถ้ามีการกา)
             if ch in stu_list:
-                color = (0, 255, 0) if status == "CORRECT" else (0, 255, 255) if status == "DOUBLE" else (0, 0, 255)
+                if status == "CORRECT":
+                    color = (0, 255, 0)      # 🟢 ถูก = สีเขียว
+                elif status == "DOUBLE":
+                    color = (0, 165, 255)    # 🟠 กาหลายข้อ = สีส้ม
+                else: 
+                    color = (0, 0, 255)      # 🔴 ตอบผิด = สีแดง
+                
                 cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), color, 2)
             
-            # 🔥 วาดกากบาทสีเขียว ทับข้อเฉลยที่ถูก (เมื่อตอบผิด หรือไม่ได้ตอบ)
-            if status in ["WRONG", "EMPTY", "DOUBLE"] and ch == cor_str:
-                cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-                cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 0), 2)
+            # 2. วาดเฉลยให้ดู (กรณีที่ตอบผิด กาเกิน หรือไม่ได้ตอบ)
+            if ch == cor_str:
+                if status == "EMPTY":
+                    # 🟡 ถ้าไม่ได้กา (Empty) -> กรอบ+กากบาทเหลือง
+                    cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 255), 2)
+                    cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 255), 2)
+                    cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 255), 2)
+                elif status in ["WRONG", "DOUBLE"]:
+                    # 🟢 ถ้าผิดหรือเบิ้ล -> กากบาทเขียวบอกเฉลย
+                    cv2.line(vis, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                    cv2.line(vis, (box[0], box[3]), (box[2], box[1]), (0, 255, 0), 2)
                 
     id_grid = mapper.get_student_id_coords()
     for col, digit_str in enumerate(student_id_list):
         if digit_str != "?":
             digit = int(digit_str)
             box = id_grid[col][digit]
-            # วาดกรอบสี่เหลี่ยมสีน้ำเงินตรงรหัสนิสิต
             cv2.rectangle(vis, (box[0], box[1]), (box[2], box[3]), (255, 0, 0), 2)
+            
     return vis
 
 def generate_key_image(answer_key, output_filename, total_questions=100):
     template_path = os.path.join(settings.BASE_DIR, 'static', 'rectified_output.jpg')
     if not os.path.exists(template_path): 
-        # Fallback
         template_path = os.path.join(settings.BASE_DIR, 'static', 'omr_template.jpg')
     
     if not os.path.exists(template_path): return None 
@@ -253,12 +278,12 @@ def generate_key_image(answer_key, output_filename, total_questions=100):
             cv2.line(vis, (box_a[0]-20, box_a[3]+10), (box_e[2]+20, box_a[3]+10), (0,0,255), 3)
             cv2.putText(vis, "* END *", (box_a[0]+50, box_a[3]+35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
             
-    # Save Key -> เก็บใน Media/keys เพื่อให้ User ดูได้
     save_dir = os.path.join(settings.MEDIA_ROOT, 'keys')
     os.makedirs(save_dir, exist_ok=True)
     full_save_path = os.path.join(save_dir, output_filename)
     cv2.imwrite(full_save_path, vis)
     return f'keys/{output_filename}'
+
 
 # ==========================================
 # PART 6: PDF GENERATION
@@ -345,6 +370,9 @@ def generate_exam_pdf(buffer, exam, student=None):
 # ==========================================
 # PART 7: MAIN PROCESS
 # ==========================================
+# ==========================================
+# PART 7: MAIN PROCESS
+# ==========================================
 def process_omr(image_path, answer_key):
     img = cv2.imread(image_path)
     if img is None: return None, "Cannot read image"
@@ -357,18 +385,17 @@ def process_omr(image_path, answer_key):
     # 1. SCAN
     stu_id_list, stu_ans = scan_selective(warped, mapper)
     
-    # 2. GRADE
-    score, results, details = grade_exam_logic(stu_ans, answer_key)
+    # 2. GRADE (🚩 เพิ่มการรับค่า has_error และส่ง stu_id_list เข้าไป)
+    score, results, details, has_error = grade_exam_logic(stu_ans, answer_key, stu_id_list)
     
     # 3. DRAW
     result_img = draw_result_on_image(warped, mapper, stu_ans, answer_key, results, stu_id_list)
     
-    # 🔥🔥🔥 แก้ไขตรงนี้: สร้างชื่อไฟล์ให้ไม่ซ้ำกัน (ป้องกัน Browser Cache)
+    # สร้างชื่อไฟล์ให้ไม่ซ้ำกัน (ป้องกัน Browser Cache)
     filename = os.path.basename(image_path)
     name, ext = os.path.splitext(filename)
-    unique_id = uuid.uuid4().hex[:6] # สุ่มรหัส 6 ตัว
+    unique_id = uuid.uuid4().hex[:6]
     graded_filename = f"graded_{name}_{unique_id}{ext}"
-    # ผลลัพธ์จะได้ชื่อไฟล์เช่น: graded_15703_a1b2c3.jpg
     
     save_dir = os.path.join(settings.MEDIA_ROOT, 'uploads', 'graded')
     os.makedirs(save_dir, exist_ok=True)
@@ -380,5 +407,6 @@ def process_omr(image_path, answer_key):
         "student_id": "".join(stu_id_list),
         "score": score,
         "image_url": f"uploads/graded/{graded_filename}",
-        "details": details 
+        "details": details,
+        "has_error": has_error # 🚩 ส่งค่า error ให้วิวส์ (views.py) เอาไปเช็คสีต่อ
     }, None
