@@ -42,7 +42,7 @@
                 {{ result.get_status_display }}
             </span>
 
-            <button onclick="updateStatus('FINISHED')" class="btn btn-success fw-bold">
+            <button onclick="updateStatus('GREEN')" class="btn btn-success fw-bold">
                 <i class="fas fa-check-circle"></i> ยืนยันผลตรวจ
             </button>
         </div>
@@ -50,18 +50,43 @@
 
     <div class="row" style="height: calc(100vh - 120px);">
         
-        <div class="col-md-7 h-100 bg-dark d-flex justify-content-center align-items-center" style="overflow: auto; position: relative;">
-            <div style="box-shadow: 0 0 20px rgba(0,0,0,0.5);">
-                {% if result.graded_image %}
-                    <img src="{{ result.graded_image.url }}" style="max-width: 100%; display: block;" alt="Graded Answer Sheet">
-                {% elif result.original_image %}
-                    <img src="{{ result.original_image.url }}" style="max-width: 100%; display: block;" alt="Original Answer Sheet">
-                {% else %}
-                    <div class="text-white p-5 border border-secondary rounded text-center">
-                        <i class="fas fa-image-slash fa-3x mb-3"></i><br>
-                        ไม่พบไฟล์รูปภาพ
+        <div class="col-md-7 h-100 bg-dark position-relative" style="overflow: auto; padding: 0;">
+            
+            <div class="text-white py-2 shadow-sm d-flex justify-content-between align-items-center px-4" style="background: rgba(0,0,0,0.85); position: sticky; top: 0; left: 0; right: 0; z-index: 10;">
+                <span><i class="fas fa-search-plus"></i> ซ้าย: รูปก่อนตรวจ | ขวา: ตีกรอบคะแนน (มีแถบเลื่อน ซ้าย-ขวา และ บน-ล่าง)</span>
+                <button onclick="openImageWindow()" class="btn btn-sm btn-outline-info text-white fw-bold">
+                    <i class="fas fa-external-link-alt"></i> เปิดรูปแยกหน้าต่าง (Popup)
+                </button>
+            </div>
+
+            <div class="d-flex align-items-start pt-2 ps-2 gap-3" style="min-width: max-content;">
+                
+                <div class="text-center" style="width: 700px; flex-shrink: 0;">
+                    <span class="badge bg-secondary fs-6 mb-3 py-2 px-4 shadow">
+                        <i class="fas fa-file-alt"></i> รูปที่ 1: ก่อนตรวจ (จัดหน้าตรง)
+                    </span>
+                    <div style="box-shadow: 0 5px 20px rgba(0,0,0,0.8); background: white; border-radius: 8px; overflow: hidden;">
+                        {% if result.original_image %}
+                            <img src="{{ result.original_image.url }}" style="display: block; width: 100%; height: auto;" alt="Warped Image">
+                        {% else %}
+                            <div class="p-5 text-muted"><i class="fas fa-image-slash fa-3x"></i></div>
+                        {% endif %}
                     </div>
-                {% endif %}
+                </div>
+
+                <div class="text-center" style="width: 700px; flex-shrink: 0;">
+                    <span class="badge bg-primary fs-6 mb-3 py-2 px-4 shadow">
+                        <i class="fas fa-check-square"></i> รูปที่ 2: ตีกรอบตรวจคะแนน
+                    </span>
+                    <div style="box-shadow: 0 5px 20px rgba(0,0,0,0.8); background: white; border-radius: 8px; overflow: hidden;">
+                        {% if result.graded_image %}
+                            <img src="{{ result.graded_image.url }}" style="display: block; width: 100%; height: auto;" alt="Graded Image">
+                        {% else %}
+                            <div class="p-5 text-muted"><i class="fas fa-image-slash fa-3x"></i></div>
+                        {% endif %}
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -108,7 +133,7 @@
                             </button>
                         </div>
                     </div>
-                    {% endfor %} </div>
+                    {% endfor %} 
                 </div>
             </div>
         </div>
@@ -157,7 +182,6 @@
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                // Update displayed name immediately
                 const nameSpan = document.getElementById('studentNameDisplay');
                 if(data.found) {
                     nameSpan.innerHTML = `<span class="text-success"><i class="fas fa-user-check"></i> ${data.student_name}</span>`;
@@ -165,30 +189,29 @@
                     nameSpan.innerHTML = `<span class="text-danger">(ไม่พบข้อมูลในระบบ)</span>`;
                 }
                 Swal.fire({
-                    icon: 'success',
-                    title: 'บันทึกเรียบร้อย',
-                    text: 'อัปเดตรหัสนิสิตแล้ว',
-                    timer: 1500,
-                    showConfirmButton: false
+                    icon: 'success', title: 'บันทึกเรียบร้อย', text: 'อัปเดตรหัสนิสิตแล้ว',
+                    timer: 1500, showConfirmButton: false
                 });
             } else {
                 Swal.fire('เกิดข้อผิดพลาด', data.error, 'error');
             }
         })
-        .catch(err => {
-            Swal.fire('Error', 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error');
-        });
+        .catch(err => Swal.fire('Error', 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', 'error'));
     }
 
-    // 2. Function to Manually Update Score (Correct/Incorrect toggle)
+    // 2. Function to Manually Update Score (เปลี่ยนสีทันทีแบบ Real-time)
     function manualUpdate(qNum, isCorrect) {
         const row = document.getElementById(`row-${qNum}`);
         
-        // Toggle visual style immediately for responsiveness
+        // 🔴 ปรับสีให้เปลี่ยนทันทีก่อนส่งไปเซิร์ฟเวอร์
+        // ล้างสีเก่าออกให้หมดก่อน
+        row.classList.remove('list-group-item-success', 'list-group-item-danger', 'list-group-item-warning', 'bg-orange-light');
+        
+        // ใส่สีใหม่ตามที่อาจารย์กด
         if (isCorrect) {
-            row.classList.remove('orange-warning-box');
+            row.classList.add('list-group-item-success');
         } else {
-            row.classList.add('orange-warning-box');
+            row.classList.add('list-group-item-danger');
         }
 
         fetch("{% url 'api_update_result' result.id %}", {
@@ -199,14 +222,14 @@
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                // Update total score display
                 document.getElementById('display-score').innerText = data.new_score;
-                updateBadge('EDITING'); // Change status to Editing
+                updateBadge('EDITING');
             }
         });
     }
 
-    // 3. Function to Update Exam Status (Finish)
+    // 3. Function to Update Exam Status (กดยืนยันแล้วกลายเป็นหน้าตรวจเสร็จ)
+    // 🔴 ตอนกดยืนยัน เราต้องส่งสถานะคำว่า 'GREEN' ไปหลังบ้าน (ไม่ใช่ FINISHED)
     function updateStatus(status) {
         fetch("{% url 'api_update_result' result.id %}", {
             method: 'POST',
@@ -217,7 +240,6 @@
         .then(data => {
             if (data.success) {
                 updateBadge(status);
-                
                 Swal.fire({
                     title: 'บันทึกสำเร็จ!',
                     text: 'การตรวจเสร็จสิ้นแล้ว กำลังกลับสู่หน้าหลัก...',
@@ -225,22 +247,34 @@
                     timer: 1500,
                     showConfirmButton: false
                 }).then(() => {
-                    // Redirect back to grade dashboard
                     window.location.href = "{% url 'grade_exam' exam.id %}";
                 });
             }
         });
     }
 
-    // Helper to update the status badge UI
     function updateBadge(status) {
         const badge = document.getElementById('status-badge');
-        if (status === 'FINISHED') {
+        // 🔴 เช็คสถานะใหม่ให้ตรงกับหลังบ้าน
+        if (status === 'GREEN' || status === 'FINISHED') {
             badge.className = "badge rounded-pill bg-success me-2";
             badge.innerText = "ตรวจเสร็จสิ้น (Finished)";
         } else if (status === 'EDITING') {
             badge.className = "badge rounded-pill bg-warning text-dark me-2";
             badge.innerText = "กำลังแก้ไข (Editing)";
+        }
+    }
+
+    // 🔥 4. แก้ตรงนี้: Function เปิดรูปแยกหน้าต่าง (Popup Window) 🔥
+    function openImageWindow() {
+        // ใช้รูปที่ตีกรอบแล้วเป็นหลัก ถ้าไม่มีก็ใช้รูปที่ไม่ได้ตีกรอบ
+        const imageUrl = "{% if result.graded_image %}{{ result.graded_image.url }}{% elif result.original_image %}{{ result.original_image.url }}{% else %}''{% endif %}";
+        
+        if (imageUrl !== "''" && imageUrl !== "") {
+            // เปิดหน้าต่างใหม่ ขนาด 800x1000
+            window.open(imageUrl, 'GradedImageWindow', 'width=800,height=1000,resizable=yes,scrollbars=yes,toolbar=no,menubar=no');
+        } else {
+            Swal.fire('แจ้งเตือน', 'ไม่พบไฟล์รูปภาพสำหรับเปิดหน้าต่างแยก', 'warning');
         }
     }
 </script>

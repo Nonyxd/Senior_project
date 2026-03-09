@@ -469,9 +469,15 @@ def api_update_result(request, result_id):
             
             result.results_data = student_answers
             result.score = new_score
-            result.status = 'EDITING'
+            # 🔥 ลบบรรทัดผลลัพธ์ที่เป็น EDITING ออก ให้เหลือแค่นี้พอ เพื่อไม่ให้สถานะเพี้ยน
             result.save()
             return JsonResponse({'success': True, 'new_score': new_score})
+
+        elif action == 'update_status':
+            # 🔥 บังคับให้เป็น GREEN ทันทีเมื่อกดยืนยัน
+            result.status = 'GREEN'
+            result.save()
+            return JsonResponse({'success': True})
 
         elif action == 'update_status':
             result.status = data.get('status')

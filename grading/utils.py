@@ -15,21 +15,47 @@ from reportlab.lib import colors
 # ==========================================
 # PART 1: GLOBAL CONFIG & YOLO
 # ==========================================
-YOLO_MODEL = None
+# สร้างตัวแปร Global ไว้ 2 ตัวสำหรับ Hybrid
+# ==========================================
+# 1. กำหนดตัวแปร Global สำหรับเก็บโมเดล (จะได้โหลดแค่ครั้งเดียว)
+# ==========================================
+YOLO_MODEL_NONY = None
+YOLO_MODEL_OLDBUTNEW = None
 
-def get_yolo_model():
-    """ โหลดโมเดล YOLO ครั้งเดียว """
-    global YOLO_MODEL
-    if YOLO_MODEL is None:
-        # 🔥 ชี้ไปที่โมเดล best_nony.pt
-        model_path = os.path.join(settings.BASE_DIR, 'grading/models/best_nony.pt')
+# ==========================================
+# 2. กำหนดน้ำหนัก (Weights) สำหรับโหมด Hybrid
+# ==========================================
+WEIGHT_ID_NONY = 0.70   # ให้ความเชื่อมั่น Nony 70% ในการอ่านรหัสนิสิต
+WEIGHT_ID_NEWER = 0.30  # ให้ความเชื่อมั่น OldButNew 30% ในการอ่านรหัสนิสิต
+
+WEIGHT_ANS_NONY = 0.30  # ให้ความเชื่อมั่น Nony 30% ในการอ่านรอยกาข้อสอบ
+WEIGHT_ANS_NEWER = 0.70 # ให้ความเชื่อมั่น OldButNew 70% ในการอ่านรอยกาข้อสอบ
+
+# ==========================================
+# 3. ฟังก์ชันสำหรับโหลดโมเดล
+# ==========================================
+def get_yolo_models():
+    """ โหลดโมเดล YOLO 2 ตัวสำหรับการทำ Hybrid ครั้งเดียว """
+    global YOLO_MODEL_NONY, YOLO_MODEL_OLDBUTNEW
+    
+    # ถ้าตัวใดตัวหนึ่งยังไม่ได้โหลด ให้โหลดใหม่
+    if YOLO_MODEL_NONY is None or YOLO_MODEL_OLDBUTNEW is None:
+        # กำหนด Path ของโมเดลทั้ง 2 ตัวให้อยู่ในโฟลเดอร์ grading/models/
+        path_nony = os.path.join(settings.BASE_DIR, 'grading', 'models', 'best_nony.pt')
+        path_old = os.path.join(settings.BASE_DIR, 'grading', 'models', 'ok_oldbutnew.pt')
+        
         try:
-            YOLO_MODEL = YOLO(model_path)
-            print(f"✅ Loaded YOLO: {model_path}")
+            YOLO_MODEL_NONY = YOLO(path_nony)
+            print(f"✅ Loaded YOLO (Nony): {path_nony}")
+            
+            YOLO_MODEL_OLDBUTNEW = YOLO(path_old)
+            print(f"✅ Loaded YOLO (OldButNew): {path_old}")
+            
         except Exception as e:
-            print(f"❌ Error loading YOLO: {e}")
-            return None
-    return YOLO_MODEL
+            print(f"❌ Error loading Hybrid YOLO models: {e}")
+            return None, None
+            
+    return YOLO_MODEL_NONY, YOLO_MODEL_OLDBUTNEW
 
 # ==========================================
 # PART 2: IMAGE PROCESSING HELPERS
@@ -63,7 +89,16 @@ def auto_detect_paper(img):
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.02 * peri, True)
         if len(approx) == 4 and cv2.contourArea(c) > (img.shape[0]*img.shape[1] * 0.1):
-            return approx.reshape(4, 2)
+            pts = approx.reshape(4, 2)
+            
+            # 🔥 เพิ่มโค้ดส่วนนี้: ขยายกรอบกระดาษออกไป 2% เพื่อไม่ให้ขอบโดนตัดแหว่ง
+            center = np.mean(pts, axis=0)
+            expanded_pts = []
+            for pt in pts:
+                direction = pt - center
+                expanded_pt = center + (direction * 1.02) # ขยายออก 2% (ปรับเลขตรงนี้ได้)
+                expanded_pts.append(expanded_pt)
+            return np.array(expanded_pts, dtype="float32")
     return None
 
 def calculate_overlap(boxA, boxB):
@@ -125,16 +160,27 @@ class GridMapper:
 # ==========================================
 # PART 4: SCANNING LOGIC (YOLO ONLY)
 # ==========================================
-def scan_selective(image, mapper):
-    model = get_yolo_model()
-    yolo_boxes = []
-    if model:
-        results = model.predict(image, conf=0.10, iou=0.45, imgsz=1024, verbose=False)[0]
-        for box in results.boxes:
+def scan_hybrid(image, mapper):
+    # ⚡⚡⚡ ดึงโมเดลทั้ง 2 ตัวมาใช้งาน ⚡⚡⚡
+    yolo_model_nony, yolo_model_oldbutnew = get_yolo_models()
+    
+    yolo_boxes_nony = []
+    yolo_boxes_oldbutnew = []
+    
+    # 1. ให้โมเดลทั้ง 2 ตัวทำงานบนรูปเดียวกัน
+    if yolo_model_nony:
+        res = yolo_model_nony.predict(image, conf=0.10, iou=0.45, imgsz=1024, verbose=False)[0]
+        for box in res.boxes:
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            yolo_boxes.append({'box': [int(x1), int(y1), int(x2), int(y2)], 'conf': float(box.conf[0])})
+            yolo_boxes_nony.append({'box': [int(x1), int(y1), int(x2), int(y2)], 'conf': float(box.conf[0])})
 
-    # A. Student ID (YOLO Only)
+    if yolo_model_oldbutnew:
+        res = yolo_model_oldbutnew.predict(image, conf=0.10, iou=0.45, imgsz=1024, verbose=False)[0]
+        for box in res.boxes:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+            yolo_boxes_oldbutnew.append({'box': [int(x1), int(y1), int(x2), int(y2)], 'conf': float(box.conf[0])})
+
+    # 2. ตรวจรหัสนิสิต
     student_id_list = []
     id_grid = mapper.get_student_id_coords()
     
@@ -143,31 +189,47 @@ def scan_selective(image, mapper):
         best_conf = 0.0
         for digit in range(10):
             grid_box = id_grid[col][digit]
-            for ybox in yolo_boxes:
-                if calculate_overlap(grid_box, ybox['box']) > 0.15:
-                    if ybox['conf'] > best_conf:
-                        best_conf = ybox['conf']
-                        found_digit = str(digit)
+            conf_nony, conf_old = 0.0, 0.0
+            
+            for ybox in yolo_boxes_nony:
+                if calculate_overlap(grid_box, ybox['box']) > 0.15: conf_nony = max(conf_nony, ybox['conf'])
+            
+            for ybox in yolo_boxes_oldbutnew:
+                if calculate_overlap(grid_box, ybox['box']) > 0.15: conf_old = max(conf_old, ybox['conf'])
+            
+            # รวมพลัง Hybrid
+            final_conf = (conf_nony * WEIGHT_ID_NONY) + (conf_old * WEIGHT_ID_NEWER)
+            
+            if final_conf > 0.20 and final_conf > best_conf: 
+                best_conf = final_conf
+                found_digit = str(digit)
+                
         student_id_list.append(found_digit)
 
-    # B. Exam Answers (YOLO Only)
+    # 3. ตรวจข้อสอบ
     detected_answers = {}
     for q in range(1, 101):
         coords = mapper.get_question_coords(q)
         if not coords: continue
+        
         found_choices = []
         for ch, grid_box in coords.items():
-            yolo_conf = 0.0
-            is_found = False
-            for ybox in yolo_boxes:
-                if calculate_overlap(grid_box, ybox['box']) > 0.15:
-                    is_found = True
-                    yolo_conf = ybox['conf']
-                    break
-            if is_found:
-                found_choices.append({'choice': ch, 'conf': yolo_conf})
+            conf_nony, conf_old = 0.0, 0.0
+            
+            for ybox in yolo_boxes_nony:
+                if calculate_overlap(grid_box, ybox['box']) > 0.15: conf_nony = max(conf_nony, ybox['conf'])
+            
+            for ybox in yolo_boxes_oldbutnew:
+                if calculate_overlap(grid_box, ybox['box']) > 0.15: conf_old = max(conf_old, ybox['conf'])
+            
+            # รวมพลัง Hybrid
+            final_conf = (conf_nony * WEIGHT_ANS_NONY) + (conf_old * WEIGHT_ANS_NEWER)
+            
+            if final_conf > 0.25:
+                found_choices.append({'choice': ch, 'conf': final_conf})
         
-        if not found_choices: detected_answers[q] = []
+        if not found_choices: 
+            detected_answers[q] = []
         else:
             found_choices.sort(key=lambda x: x['conf'], reverse=True)
             detected_answers[q] = sorted([item['choice'] for item in found_choices])
@@ -367,9 +429,7 @@ def generate_exam_pdf(buffer, exam, student=None):
     c.showPage()
     c.save()
 
-# ==========================================
-# PART 7: MAIN PROCESS
-# ==========================================
+
 # ==========================================
 # PART 7: MAIN PROCESS
 # ==========================================
@@ -379,19 +439,23 @@ def process_omr(image_path, answer_key):
     
     points = auto_detect_paper(img)
     if points is None: return None, "Cannot detect paper corners"
+    
+    # รูปที่ดึงให้ตรงแล้ว (แต่ยังไม่มีกรอบคะแนน)
     warped = four_point_transform(img, points)
     mapper = GridMapper(warped.shape[1], warped.shape[0])
     
-    # 1. SCAN
-    stu_id_list, stu_ans = scan_selective(warped, mapper)
+    # 🔥 เพิ่มบรรทัดนี้: เซฟรูปที่ดึงตรงแล้วกลับไปทับรูปต้นฉบับเลย!
+    # เว็บจะได้ดึงรูปที่จัดหน้าแล้วมาโชว์แทนรูปเอียงๆ
+    cv2.imwrite(image_path, warped)
     
-    # 2. GRADE (🚩 เพิ่มการรับค่า has_error และส่ง stu_id_list เข้าไป)
+    # -- โค้ดส่วนตรวจคะแนน (scan_hybrid) และวาดกรอบของคุณเหมือนเดิมเป๊ะๆ --
+    stu_id_list, stu_ans = scan_hybrid(warped, mapper)
+    
+    # ส่วนตรวจคะแนนและวาดรูปใช้ตัวเดิมที่คุณมีได้เลย
     score, results, details, has_error = grade_exam_logic(stu_ans, answer_key, stu_id_list)
-    
-    # 3. DRAW
     result_img = draw_result_on_image(warped, mapper, stu_ans, answer_key, results, stu_id_list)
     
-    # สร้างชื่อไฟล์ให้ไม่ซ้ำกัน (ป้องกัน Browser Cache)
+    # ส่วนบันทึกไฟล์ภาพเหมือนเดิม
     filename = os.path.basename(image_path)
     name, ext = os.path.splitext(filename)
     unique_id = uuid.uuid4().hex[:6]
@@ -408,5 +472,5 @@ def process_omr(image_path, answer_key):
         "score": score,
         "image_url": f"uploads/graded/{graded_filename}",
         "details": details,
-        "has_error": has_error # 🚩 ส่งค่า error ให้วิวส์ (views.py) เอาไปเช็คสีต่อ
+        "has_error": has_error
     }, None
