@@ -3,6 +3,13 @@
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
+<style>
+    div[style*="overflow-y: auto"]::-webkit-scrollbar { width: 5px; }
+    div[style*="overflow-y: auto"]::-webkit-scrollbar-track { background: transparent; }
+    div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+    div[style*="overflow-y: auto"]::-webkit-scrollbar-thumb:hover { background: #999; }
+</style>
+
 <form id="csrf-form" style="display:none;">
     {% csrf_token %}
 </form>
@@ -15,6 +22,11 @@
         <a href="{% url 'create_exam' %}" class="btn" style="background:#333; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; font-weight: bold;">
             <i class="fas fa-plus"></i> สร้างการสอบใหม่
         </a>
+        
+        <button type="button" class="btn" data-bs-toggle="modal" data-bs-target="#manageSubjectModal" style="background:#dc3545; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; margin-left: 10px; font-weight: bold; border: none; cursor: pointer;">
+            <i class="fas fa-trash-alt"></i> ลบวิชาในระบบ
+        </button>
+
         <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
         
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
@@ -33,11 +45,13 @@
                     </span>
                 </div>
 
-                <h3 style="margin-top: 0; padding-right: 40px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; word-break: break-word; height: 3.2em; line-height: 1.4em;" 
-                    title="{{ exam.subject_code }} {{ exam.subject_name }}">
-                    <span style="color: #2196F3;">{{ exam.subject_code }}</span><br>
-                    <span style="font-size: 0.9em;">{{ exam.subject_name }}</span>
-                </h3>
+                <div style="height: 65px; overflow-y: auto; margin-bottom: 15px; padding-right: 5px; position: relative;">
+                    <h3 style="margin: 0; word-break: break-word; line-height: 1.4em; font-size: 1.25em;" 
+                        title="{{ exam.subject_code }} {{ exam.subject_name }}">
+                        <span style="color: #2196F3; font-weight: bold;">{{ exam.subject_code }}</span><br>
+                        <span style="font-size: 0.9em; color: #444;">{{ exam.subject_name }}</span>
+                    </h3>
+                </div>
 
                 <p style="color: #666; font-size: 14px;">
                     <i class="far fa-calendar-alt"></i> สอบวันที่: {{ exam.exam_date|date:"d M Y" }} | 
@@ -90,6 +104,43 @@
     </div>
 </div>
 
+<div class="modal fade" id="manageSubjectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> ลบวิชาในระบบ (Delete Subject)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle"></i> <b>คำเตือน:</b> การลบวิชาในหน้านี้ จะทำการลบ <u>ทุกการสอบ</u> และ <u>ผลคะแนนทั้งหมด</u> ภายใต้วิชานั้นๆ ทันที
+                </div>
+                <div class="mb-3">
+                    <input type="text" id="modalSearchInput" class="form-control" placeholder="🔍 ค้นหารหัสวิชา หรือ ชื่อวิชา..." onkeyup="filterModalSubjects()">
+                </div>
+                <div class="list-group" id="modalSubjectList">
+                    {% for sub in exams %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center subject-item" style="padding: 10px; border: 1px solid #ddd; margin-bottom: 5px; border-radius: 5px;">
+                        <div>
+                            <span class="fw-bold text-primary">{{ sub.subject_code }}</span>
+                            <span class="text-dark mx-2">-</span>
+                            <span>{{ sub.subject_name }}</span>
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm rounded-circle" 
+                                onclick="deleteSubject('{{ sub.subject_code }}')" 
+                                title="ลบวิชานี้ถาวร" style="border-radius: 50%; padding: 5px 10px;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    {% empty %}
+                    <div class="text-center p-4 text-muted">ไม่พบข้อมูลวิชาในระบบ</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     function confirmDelete(deleteUrl, examName) {
         Swal.fire({
@@ -125,6 +176,65 @@
                 form.appendChild(hiddenField);
                 document.body.appendChild(form);
                 form.submit();
+            }
+        });
+    }
+
+    // 🔥 JavaScript สำหรับระบบ Modal ลบวิชา 🔥
+    function filterModalSubjects() {
+        let input = document.getElementById('modalSearchInput');
+        let filter = input.value.toLowerCase();
+        let items = document.getElementsByClassName('subject-item');
+        for (let i = 0; i < items.length; i++) {
+            let textContent = items[i].textContent || items[i].innerText;
+            if (textContent.toLowerCase().indexOf(filter) > -1) {
+                items[i].style.display = 'flex'; 
+            } else {
+                items[i].style.display = 'none';
+            }
+        }
+    }
+
+    function deleteSubject(code) {
+        Swal.fire({
+            title: 'ยืนยันการลบวิชานี้ทั้งหมด?',
+            html: `คุณกำลังจะลบวิชา <strong>${code}</strong><br><br>
+                   <span style="color:red; font-size:0.9em;">
+                       คำเตือน: การลบนี้จะทำให้ข้อมูลการสอบและผลคะแนนทั้งหมดภายใต้วิชานี้หายไปทันที ไม่สามารถกู้คืนได้!
+                   </span>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'ลบข้อมูลเดี๋ยวนี้',
+            cancelButtonText: 'ยกเลิก',
+            showLoaderOnConfirm: true,
+            preConfirm: () => {
+                return fetch('{% url "delete_subject_api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({ subject_code: code })
+                })
+                .then(response => {
+                    if (!response.ok) { throw new Error(response.statusText) }
+                    return response.json()
+                })
+                .catch(error => { Swal.showValidationMessage(`Request failed: ${error}`) })
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((result) => {
+            if (result.isConfirmed) {
+                if (result.value.success) {
+                    Swal.fire({
+                        icon: 'success', title: 'ลบเรียบร้อย',
+                        text: result.value.message, timer: 2000, showConfirmButton: false
+                    }).then(() => { location.reload(); });
+                } else {
+                    Swal.fire('Error', result.value.error || 'เกิดข้อผิดพลาด', 'error');
+                }
             }
         });
     }

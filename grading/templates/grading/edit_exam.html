@@ -40,24 +40,15 @@
         
         <div class="form-group">
             <label>ชื่อวิชา:</label>
-            <input type="text" name="name" value="{{ exam.name }}" required maxlength="100">
+            <input type="text" name="subject_name" value="{{ exam.subject_name }}" required maxlength="100">
         </div>
 
-        <div class="form-group" style="background: #fff3e0; padding: 15px; border-radius: 8px; border: 1px solid #ffe0b2;">
-            <label style="color: #ef6c00;">อัปเดตรายชื่อนักเรียนจาก (Optional):</label>
-            <select name="subject_id">
-                <option value="">-- ไม่เปลี่ยนแปลง (ใช้รายชื่อเดิม) --</option>
-                {% for sub in subjects %}
-                    <option value="{{ sub.id }}">{{ sub.code }} {{ sub.name }} ({{ sub.students.count }} คน)</option>
-                {% endfor %}
-            </select>
-            <small style="color: #d84315;">* คำเตือน: หากเลือกใหม่ รายชื่อนักเรียนชุดเดิมของการสอบนี้จะถูกลบและแทนที่ด้วยวิชาที่เลือก</small>
-        </div>
+        
 
         <div style="display: flex; gap: 20px;">
             <div class="form-group" style="flex: 1;">
                 <label>รหัสวิชา:</label>
-                <input type="text" name="course_code" value="{{ exam.course_code }}">
+                <input type="text" name="subject_code" value="{{ exam.subject_code }}" required>
             </div>
             <div class="form-group" style="flex: 1;">
                 <label>ห้องสอบ:</label>
@@ -75,8 +66,8 @@
                 <input type="text" class="time-picker" name="start_time" value="{{ exam.start_time|time:'H:i' }}">
             </div>
             <div class="form-group" style="flex: 1;">
-                <label>เวลาจบ (24 ชม.):</label>
-                <input type="text" class="time-picker" name="end_time" value="{{ exam.end_time|time:'H:i' }}">
+                <label>ระยะเวลาสอบ (นาที):</label>
+                <input type="number" name="duration_minutes" value="{{ exam.duration_minutes }}" min="1" required>
             </div>
         </div>
 

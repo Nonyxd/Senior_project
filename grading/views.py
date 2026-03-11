@@ -5,6 +5,11 @@ import urllib.parse
 import json
 import pandas as pd 
 
+# 🔥 1. IMPORT เครื่องมือสำหรับแยกหน้า PDF 🔥
+import fitz 
+import io
+from django.core.files.uploadedfile import InMemoryUploadedFile
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -24,7 +29,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.graphics.barcode import qr
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics import renderPDF
-
 
 # --- Models ---
 from .models import Exam, StudentResult, Student
@@ -78,9 +82,6 @@ def delete_subject_api(request):
 
 # ==========================================
 # 1. Dashboard & Create
-# ==========================================
-# ==========================================
-# แก้ไข: หน้า Dashboard เพิ่มการคำนวณสถานะการสอบ (อัปเดตเรื่อง Timezone)
 # ==========================================
 @login_required
 def index(request):
@@ -201,12 +202,7 @@ def create_exam(request):
         'existing_subjects': existing_subjects, 'range_100': range(1, 101)
     })
 
-# ==========================================
-# แก้ไข: save_exam_confirm (ให้เก็บไฟล์ Excel ลง DB ไม่ลบทิ้ง)
-# ==========================================
-# ==========================================
-# แก้ไข: save_exam_confirm (ดึงรายชื่อเด็กเก่ามาให้อัตโนมัติ)
-# ==========================================
+
 @login_required
 def save_exam_confirm(request):
     data = request.session.get('temp_exam_data')
@@ -228,7 +224,6 @@ def save_exam_confirm(request):
             full_path = os.path.join(settings.MEDIA_ROOT, roster_path)
             if os.path.exists(full_path):
                 try:
-                    # อ่านข้อมูลเพื่อเพิ่มนิสิต
                     df = pd.read_excel(full_path)
                     for _, row in df.iterrows():
                         sid = str(row.iloc[3]).strip() if len(row)>3 else str(row.get('StudentID',''))
@@ -238,15 +233,12 @@ def save_exam_confirm(request):
                             stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
                             exam.enrolled_students.add(stu)
                     
-                    # 🔥 [แก้ตรงนี้] บันทึก Path ไฟล์ลง DB และ "ไม่ต้องลบไฟล์ทิ้ง"
-                    # เพื่อให้ delete_exam สามารถตามไปลบไฟล์นี้ได้ภายหลัง
                     exam.roster_file.name = roster_path
                     exam.save()
                     
                 except Exception as e:
                     print(f"Error processing roster: {e}")
         else:
-            # 🔥 [เพิ่มตรงนี้] ถ้าไม่ได้อัปโหลด Excel ใหม่ ให้ดึงรายชื่อนิสิตจากข้อสอบเก่ามาใส่ให้อัตโนมัติ!
             previous_exam = Exam.objects.filter(subject_code=data['subject_code']).exclude(id=exam.id).order_by('-created_at').first()
             if previous_exam and previous_exam.enrolled_students.exists():
                 exam.enrolled_students.set(previous_exam.enrolled_students.all())
@@ -299,10 +291,39 @@ def grade_exam_view(request, exam_id):
     
     # Upload Logic
     if request.method == 'POST' and request.FILES.get('image'):
-        files = request.FILES.getlist('image')
+        raw_files = request.FILES.getlist('image')
+        processed_files = []
+
+        # 🔥 2. เช็คว่าไฟล์ที่อัปโหลดมาเป็น PDF หรือไม่ ถ้าใช่ให้แตกเป็นรูปภาพ 🔥
+        for f in raw_files:
+            if f.name.lower().endswith('.pdf'):
+                try:
+                    pdf_document = fitz.open(stream=f.read(), filetype="pdf")
+                    for page_num in range(len(pdf_document)):
+                        page = pdf_document.load_page(page_num)
+                        # ดึงรูปภาพออกมาที่ความละเอียด 300 DPI
+                        pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
+                        image_bytes = pix.tobytes("png")
+                        
+                        # สร้างไฟล์รูปภาพจำลองขึ้นมาในระบบ
+                        image_file = InMemoryUploadedFile(
+                            file=io.BytesIO(image_bytes),
+                            field_name='image',
+                            name=f"{os.path.splitext(f.name)[0]}_page_{page_num+1}.png",
+                            content_type='image/png',
+                            size=len(image_bytes),
+                            charset=None
+                        )
+                        processed_files.append(image_file)
+                except Exception as e:
+                    messages.error(request, f"เกิดข้อผิดพลาดในการอ่านไฟล์ PDF {f.name}: {e}")
+            else:
+                # ถ้าเป็นรูปภาพปกติ (.jpg, .png) ก็ทำงานตามเดิม
+                processed_files.append(f)
+
+        # 🔥 3. นำไฟล์ทั้งหมดที่ถูกเตรียมไว้ (ทั้งรูปปกติและรูปที่ได้จาก PDF) ไปตรวจ 🔥
         c = 0
-        for f in files:
-            # เปลี่ยน status ตั้งต้นเป็น 'RED' ไว้ก่อน
+        for f in processed_files:
             res = StudentResult.objects.create(
                 exam=exam, student_id_ocr="Processing...", score=0, original_image=f, status='RED'
             )
@@ -313,10 +334,8 @@ def grade_exam_view(request, exam_id):
                 res.score = data.get('score', 0)
                 res.results_data = data.get('details', {})
                 
-                # 🚩 เช็คสถานะ Error จากที่ OMR ส่งมา
-                has_error = data.get('has_error', True) # ถ้าหาไม่เจอ ให้มองว่า Error ไปก่อน
+                has_error = data.get('has_error', True) 
                 
-                # Fix Path
                 if 'image_url' in data:
                     raw_path = str(data['image_url'])
                     if 'uploads' in raw_path:
@@ -334,9 +353,8 @@ def grade_exam_view(request, exam_id):
                     res.student = Student.objects.get(student_id=clean_id)
                 except Student.DoesNotExist:
                     res.student = None
-                    has_error = True # 🚩 ถ้ารหัสนิสิตไม่ตรงกับฐานข้อมูล ก็ให้ถือว่าเป็น Error (RED) ไปเลย
+                    has_error = True 
 
-                # 🚩 กำหนดสีลงฐานข้อมูล
                 if has_error:
                     res.status = 'RED'
                 else:
@@ -349,8 +367,6 @@ def grade_exam_view(request, exam_id):
                 
         messages.success(request, f"ตรวจเรียบร้อย {c} ใบ")
         return redirect('grade_exam', exam_id=exam.id)
-
-    
 
     # Display Logic
     all_results = StudentResult.objects.filter(exam=exam).select_related('student')
@@ -469,18 +485,11 @@ def api_update_result(request, result_id):
             
             result.results_data = student_answers
             result.score = new_score
-            # 🔥 ลบบรรทัดผลลัพธ์ที่เป็น EDITING ออก ให้เหลือแค่นี้พอ เพื่อไม่ให้สถานะเพี้ยน
             result.save()
             return JsonResponse({'success': True, 'new_score': new_score})
 
         elif action == 'update_status':
-            # 🔥 บังคับให้เป็น GREEN ทันทีเมื่อกดยืนยัน
             result.status = 'GREEN'
-            result.save()
-            return JsonResponse({'success': True})
-
-        elif action == 'update_status':
-            result.status = data.get('status')
             result.save()
             return JsonResponse({'success': True})
 
@@ -509,13 +518,9 @@ def api_update_result(request, result_id):
 # ==========================================
 @login_required
 def generate_answer_sheet(request, exam_id):
-    # ---------------------------------------------------------
-    # 🔥 IMPORT ตรงนี้ เพื่อแก้ปัญหา NameError แน่นอน 100%
-    # ---------------------------------------------------------
     from reportlab.graphics.barcode import qr
     from reportlab.graphics.shapes import Drawing
     from reportlab.graphics import renderPDF
-    # ---------------------------------------------------------
 
     exam = get_object_or_404(Exam, pk=exam_id)
     students = exam.enrolled_students.all()
@@ -552,7 +557,6 @@ def generate_answer_sheet(request, exam_id):
             c.setFont(font_name_use, font_size_use)
             c.setFillColorRGB(0, 0, 0.5)
             
-            # --- 1. General Info ---
             c.drawString(45*mm, 256*mm, f"{student.first_name} {student.last_name}")
             c.drawString(105*mm, 256*mm, f"{exam.subject_name}")
             c.drawString(165*mm, 256*mm, f"{exam.subject_code}")
@@ -563,7 +567,6 @@ def generate_answer_sheet(request, exam_id):
             c.drawString(105*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
             c.drawString(165*mm, 240*mm, f"{exam.duration_minutes} นาที")
 
-            # --- 2. Auto Mark "X" & Student ID ---
             GRID_START_X = 24 * mm
             GRID_START_Y = 214 * mm 
             STEP_X = 5.8 * mm
@@ -580,26 +583,18 @@ def generate_answer_sheet(request, exam_id):
                     pos_x = GRID_START_X + (i * STEP_X)
                     pos_y = GRID_START_Y - (digit * STEP_Y)
                     
-                    # Mark X
                     c.setFont("Helvetica", 14)
                     c.drawString(pos_x + OFFSET_X_ONLY, pos_y + OFFSET_Y_ONLY, "x")
                     
-                    # Write Number
                     header_y = GRID_START_Y + 6.5 * mm 
                     c.setFont("Helvetica", 8) 
                     c.drawString(pos_x + 1.5*mm, header_y, char)
 
-            # --- 3. QR Code + Exam ID (Top-Left) ---
-            
-            # ตำแหน่งมุมซ้ายบน
             QR_X = 25 * mm
             QR_Y = 263 * mm
-            
-            # ข้อมูลใน QR
             qr_data = f"{exam.id}|{student.student_id}"
             
-            # สร้าง QR Widget
-            qr_widget = qr.QrCodeWidget(qr_data) # ใช้ตัวแปร qr ที่ import เข้ามาข้างบน
+            qr_widget = qr.QrCodeWidget(qr_data)
             qr_widget.barWidth = 25 * mm 
             qr_widget.barHeight = 25 * mm
             
@@ -607,7 +602,6 @@ def generate_answer_sheet(request, exam_id):
             d.add(qr_widget)
             renderPDF.draw(d, c, QR_X, QR_Y)
 
-            # เขียนเลข Exam ID เหนือ QR
             c.setFont("Helvetica-Bold", 12)
             c.setFillColorRGB(0, 0, 0)
             c.drawString(QR_X, QR_Y + 26*mm, f"Exam ID: {exam.id}")
@@ -632,9 +626,6 @@ def download_exam_sheet(request, exam_id, student_id=None):
     generate_exam_pdf(response, exam, student)
     return response
 
-# ==========================================
-# แก้ไข: delete_exam (เปลี่ยนเป็น Soft Delete + ลบไฟล์ Manual)
-# ==========================================
 @login_required
 def delete_exam(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
@@ -642,58 +633,40 @@ def delete_exam(request, exam_id):
     if request.method == 'POST':
         subject_code = exam.subject_code
         
-        # 1. ลบรูปเฉลย (Key Image)
         if exam.key_image:
             if os.path.exists(exam.key_image.path):
                 try: os.remove(exam.key_image.path)
                 except: pass
             exam.key_image = None
             
-        # 2. ลบไฟล์ Excel (Roster File)
         if hasattr(exam, 'roster_file') and exam.roster_file:
             if os.path.exists(exam.roster_file.path):
                 try: os.remove(exam.roster_file.path)
                 except: pass
             exam.roster_file = None
             
-        # 3. ลบผลสอบและรูปกระดาษคำตอบของนิสิตทั้งหมดทิ้ง (เคลียร์พื้นที่)
         exam.results.all().delete()
         
-        # 4. 🔥 ปิดการมองเห็น (Soft Delete) แทนการใช้ exam.delete()
         exam.is_active = False 
-        exam.answer_key = {} # เคลียร์เฉลยทิ้ง
+        exam.answer_key = {} 
         exam.save()
         
         return redirect('index')
         
     return render(request, 'grading/delete_confirm.html', {'exam': exam})
 
-# ==========================================
-# เพิ่มใหม่: reset_exam_key (ลบเฉลย -> ลบแค่รูปเฉลย+ผลตรวจ)
-# ==========================================
 @login_required
 def reset_exam_key(request, exam_id):
-    """
-    ใช้สำหรับปุ่ม 'ลบเฉลย' หรือ 'Reset Key'
-    - ลบรูปเฉลย
-    - ลบผลการตรวจ (StudentResult) เพราะเฉลยเปลี่ยน คะแนนเก่าใช้ไม่ได้
-    - แต่ 'ไม่ลบ' ไฟล์ Excel รายชื่อนิสิต
-    """
     exam = get_object_or_404(Exam, pk=exam_id)
     
     if request.method == 'POST':
-        # 1. ลบรูปเฉลย
         if exam.key_image:
             if os.path.exists(exam.key_image.path):
                 try: os.remove(exam.key_image.path)
                 except: pass
             exam.key_image = None
             
-        # 2. เคลียร์ข้อมูลเฉลยใน DB
         exam.answer_key = {}
-        
-        # 3. ลบผลการตรวจทั้งหมด (StudentResult)
-        # Signal จะทำงานอัตโนมัติ ลบรูปกระดาษคำตอบของนิสิตทิ้งให้ด้วย
         deleted_count = exam.results.all().count()
         exam.results.all().delete()
         
@@ -701,7 +674,6 @@ def reset_exam_key(request, exam_id):
         messages.success(request, f"รีเซ็ตเฉลยและลบผลการตรวจ {deleted_count} ใบเรียบร้อยแล้ว (รายชื่อนิสิตยังอยู่)")
         
     return redirect('edit_exam', exam_id=exam.id)
-
 
 @login_required
 def delete_result(request, result_id):
@@ -812,23 +784,17 @@ def save_edit_confirm(request, exam_id):
 def logout_confirm_view(request):
     return render(request, 'registration/logout_confirm.html')
 
-
-# ==========================================
-# เพิ่มใหม่: ฟังก์ชันเปลี่ยนสีเป็น GREEN เมื่อคนตรวจยืนยัน
-# ==========================================
 @login_required
 @require_POST
 def verify_paper_status(request, result_id):
     result = get_object_or_404(StudentResult, pk=result_id)
     exam_id = result.exam.id
     
-    # 🚩 เปลี่ยนสถานะเป็น GREEN (ตรวจสอบด้วยคนแล้ว)
     result.status = 'GREEN'
     result.save()
     
     messages.success(request, f"ยืนยันความถูกต้องให้นิสิตรหัส {result.student_id_ocr} เรียบร้อยแล้ว (สีเขียว)")
     
-    # ดึงค่าว่าตอนนี้ผู้ใช้อยู่หน้าไหน (เผื่อกลับไปหน้าเดิมได้)
     next_url = request.POST.get('next', '')
     if next_url:
         return redirect(next_url)

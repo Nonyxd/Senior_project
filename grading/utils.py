@@ -3,7 +3,7 @@ import numpy as np
 import os
 from django.conf import settings
 from ultralytics import YOLO
-import uuid # อย่าลืม import uuid ไว้บนสุดของไฟล์ (ถ้ายังไม่มี)
+import uuid 
 
 # --- Imports สำหรับ PDF Generation ---
 from reportlab.pdfgen import canvas

@@ -1,5 +1,7 @@
 {% extends 'grading/base.html' %}
 
+{% load grading_extras %}
+
 {% block content %}
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -138,9 +140,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#manageSubjectModal" style="white-space: nowrap;">
-                        <i class="fas fa-trash-alt"></i> จัดการ/ลบวิชา
-                    </button>
+                    
                 </div>
             </div>
         </div>
@@ -220,8 +220,8 @@
                 <div class="grid-container">
                     {% for i in range_100 %}
                     <div class="question-item">
-                        <label>{{ i }}</label>
-                        <select name="q_{{ i }}" class="question-select" data-qnum="{{ i }}">
+                        <label style="font-size: 12px; display: block;">{{ i }}</label>
+                        <select name="q_{{ i }}" class="question-select" data-qnum="{{ i }}" style="width: 100%; text-align: center; padding: 2px;">
                             <option value="">-</option>
                             <option value="a">A</option>
                             <option value="b">B</option>
@@ -242,45 +242,7 @@
     </form>
 </div>
 
-<div class="modal fade" id="manageSubjectModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title"><i class="fas fa-edit"></i> จัดการรายชื่อวิชา (ลบวิชาเก่า)</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle"></i> <b>คำเตือน:</b> การลบวิชาในหน้านี้ จะทำการลบ <u>ทุกการสอบ</u> และ <u>ผลคะแนนทั้งหมด</u> ภายใต้วิชานั้นๆ ทันที
-                </div>
-                
-                <div class="mb-3">
-                    <input type="text" id="modalSearchInput" class="form-control" placeholder="🔍 ค้นหารหัสวิชา หรือ ชื่อวิชา..." onkeyup="filterModalSubjects()">
-                </div>
 
-                <div class="list-group" id="modalSubjectList">
-                    {% for sub in existing_subjects %}
-                    <div class="list-group-item d-flex justify-content-between align-items-center subject-item">
-                        <div>
-                            <span class="fw-bold text-primary">{{ sub.subject_code }}</span>
-                            <span class="text-dark mx-2">-</span>
-                            <span>{{ sub.subject_name }}</span>
-                        </div>
-                        <button class="btn btn-outline-danger btn-sm rounded-circle" 
-                                onclick="deleteSubject('{{ sub.subject_code }}')" 
-                                title="ลบวิชานี้ถาวร">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    {% empty %}
-                    <div class="text-center p-4 text-muted">ไม่พบข้อมูลวิชา</div>
-                    {% endfor %}
-                </div>
-
-            </div>
-        </div>
-    </div>
-</div>
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -396,40 +358,25 @@
         document.getElementById("manualKeyInput").style.display = (type === "manual") ? "block" : "none";
     }
 
-    // ฟังก์ชันค้นหาวิชาใน Modal
-    function filterModalSubjects() {
-        let input = document.getElementById('modalSearchInput');
-        let filter = input.value.toLowerCase();
-        let items = document.getElementsByClassName('subject-item');
 
-        for (let i = 0; i < items.length; i++) {
-            let textContent = items[i].textContent || items[i].innerText;
-            if (textContent.toLowerCase().indexOf(filter) > -1) {
-                // คืนค่า display กลับเป็นค่าเดิมของ Bootstrap d-flex
-                items[i].style.setProperty('display', 'flex', 'important'); 
-            } else {
-                items[i].style.setProperty('display', 'none', 'important');
-            }
-        }
-    }
-
-    // 🔥🔥 ฟังก์ชันล็อกข้อสอบที่เกิน Limit 🔥🔥
+    
+    
     function updateQuestionLimit() {
         let limit = parseInt(document.getElementById('totalQuestions').value) || 100;
-        let selects = document.querySelectorAll('.question-select');
+        
+        // ต้องหา class .question-select นะครับ เพราะเรากลับมาใช้ dropdown แล้ว
+        let selects = document.querySelectorAll('.question-select'); 
         
         selects.forEach(function(select) {
             let qNum = parseInt(select.getAttribute('data-qnum'));
             let parentDiv = select.closest('.question-item');
             
             if (qNum > limit) {
-                // ล็อกและเคลียร์ค่า
                 select.disabled = true;
                 select.value = ""; 
                 parentDiv.style.opacity = '0.4'; 
                 parentDiv.style.background = '#e9ecef';
             } else {
-                // ปลดล็อก
                 select.disabled = false;
                 parentDiv.style.opacity = '1';
                 parentDiv.style.background = '#fff';
@@ -443,59 +390,7 @@
     });
 
     
-    // 🔥🔥 ฟังก์ชันลบวิชา (แก้ไขใหม่เป็น SweetAlert2) 🔥🔥
-    function deleteSubject(code) {
-        Swal.fire({
-            title: 'ยืนยันการลบ?',
-            html: `คุณกำลังจะลบวิชา <strong>${code}</strong><br><br>
-                   <span style="color:red; font-size:0.9em;">
-                       คำเตือน: การลบนี้จะทำให้ข้อมูลการสอบและผลคะแนนทั้งหมดภายใต้วิชานี้หายไปทันที!
-                   </span>`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
-            confirmButtonText: 'ลบข้อมูลเดี๋ยวนี้',
-            cancelButtonText: 'ยกเลิก',
-            showLoaderOnConfirm: true,
-            preConfirm: () => {
-                return fetch('{% url "delete_subject_api" %}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify({ subject_code: code })
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(response.statusText)
-                    }
-                    return response.json()
-                })
-                .catch(error => {
-                    Swal.showValidationMessage(`Request failed: ${error}`)
-                })
-            },
-            allowOutsideClick: () => !Swal.isLoading()
-        }).then((result) => {
-            if (result.isConfirmed) {
-                if (result.value.success) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'ลบเรียบร้อย',
-                        text: result.value.message,
-                        timer: 2000,
-                        showConfirmButton: false
-                    }).then(() => {
-                        location.reload(); // รีโหลดหน้าใหม่
-                    });
-                } else {
-                    Swal.fire('Error', result.value.error || 'เกิดข้อผิดพลาด', 'error');
-                }
-            }
-        });
-    }
+
 
     // Init
     toggleMode('manual');
