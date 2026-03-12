@@ -558,14 +558,14 @@ def generate_answer_sheet(request, exam_id):
             c.setFillColorRGB(0, 0, 0.5)
             
             c.drawString(45*mm, 256*mm, f"{student.first_name} {student.last_name}")
-            c.drawString(105*mm, 256*mm, f"{exam.subject_name}")
-            c.drawString(165*mm, 256*mm, f"{exam.subject_code}")
-            c.drawString(45*mm, 248*mm, f"{student.student_id}")
-            c.drawString(105*mm, 248*mm, f"{exam.section}") 
-            c.drawString(165*mm, 248*mm, exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else "")
+            c.drawString(45*mm, 248*mm, f"{exam.subject_name}")
+            c.drawString(133*mm, 248*mm, f"{exam.subject_code}")
+            c.drawString(129*mm, 256*mm, f"{student.student_id}")
+            c.drawString(180*mm, 256*mm, f"{exam.section}") 
+            c.drawString(105*mm, 240*mm, exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else "")
             c.drawString(45*mm, 240*mm, f"{exam.room}")
-            c.drawString(105*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
-            c.drawString(165*mm, 240*mm, f"{exam.duration_minutes} นาที")
+            c.drawString(165*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
+            c.drawString(175*mm, 240*mm, f"({exam.duration_minutes}) นาที")
 
             GRID_START_X = 24 * mm
             GRID_START_Y = 214 * mm 
