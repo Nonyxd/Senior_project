@@ -553,19 +553,22 @@ def generate_answer_sheet(request, exam_id):
         if os.path.exists(bg_image_path): 
             c.drawImage(bg_image_path, 0, 0, width=width, height=height)
         
+        c.setFont(font_name_use, font_size_use)
+        c.setFillColorRGB(0, 0, 0.5)
+        
+        # --- 1. ข้อมูลที่ต้องโชว์เสมอ (พิมพ์แค่ข้อมูลวิชา) ---
+        c.drawString(45*mm, 248*mm, f"{exam.subject_name}")
+        c.drawString(133*mm, 248*mm, f"{exam.subject_code}")
+        c.drawString(180*mm, 256*mm, f"{exam.section}") 
+        c.drawString(105*mm, 240*mm, exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else "")
+        c.drawString(45*mm, 240*mm, f"{exam.room}")
+        c.drawString(165*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
+        c.drawString(175*mm, 240*mm, f"({exam.duration_minutes}) นาที")
+
+        # --- 2. ข้อมูลนิสิตและ QR Code (สร้างเฉพาะเมื่อมีรายชื่อนิสิต) ---
         if student is not None:
-            c.setFont(font_name_use, font_size_use)
-            c.setFillColorRGB(0, 0, 0.5)
-            
             c.drawString(45*mm, 256*mm, f"{student.first_name} {student.last_name}")
-            c.drawString(45*mm, 248*mm, f"{exam.subject_name}")
-            c.drawString(133*mm, 248*mm, f"{exam.subject_code}")
             c.drawString(129*mm, 256*mm, f"{student.student_id}")
-            c.drawString(180*mm, 256*mm, f"{exam.section}") 
-            c.drawString(105*mm, 240*mm, exam.exam_date.strftime('%d/%m/%Y') if exam.exam_date else "")
-            c.drawString(45*mm, 240*mm, f"{exam.room}")
-            c.drawString(165*mm, 240*mm, exam.start_time.strftime('%H:%M') if exam.start_time else "")
-            c.drawString(175*mm, 240*mm, f"({exam.duration_minutes}) นาที")
 
             GRID_START_X = 24 * mm
             GRID_START_Y = 214 * mm 
@@ -577,6 +580,7 @@ def generate_answer_sheet(request, exam_id):
             student_id_str = str(student.student_id).strip()
             c.setFillColorRGB(0, 0, 0)
             
+            # วาดกากบาททับเลขรหัสนิสิต
             for i, char in enumerate(student_id_str):
                 if char.isdigit():
                     digit = int(char)
@@ -590,9 +594,10 @@ def generate_answer_sheet(request, exam_id):
                     c.setFont("Helvetica", 8) 
                     c.drawString(pos_x + 1.5*mm, header_y, char)
 
+            # --- 3. QR Code (ย้ายเข้ามาอยู่ในเงื่อนไขนี้แล้ว) ---
             QR_X = 25 * mm
             QR_Y = 263 * mm
-            qr_data = f"{exam.id}|{student.student_id}"
+            qr_data = f"{exam.id}|{student_id_str}"
             
             qr_widget = qr.QrCodeWidget(qr_data)
             qr_widget.barWidth = 25 * mm 
@@ -610,7 +615,6 @@ def generate_answer_sheet(request, exam_id):
 
     c.save()
     return response
-
 
 @login_required
 def download_exam_sheet(request, exam_id, student_id=None):

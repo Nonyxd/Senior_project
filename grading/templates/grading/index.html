@@ -1,6 +1,6 @@
 {% extends 'grading/base.html' %}
 
-{% block content %}
+{% load static %} {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <style>
@@ -26,6 +26,12 @@
         <button type="button" class="btn" data-bs-toggle="modal" data-bs-target="#manageSubjectModal" style="background:#dc3545; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; margin-left: 10px; font-weight: bold; border: none; cursor: pointer;">
             <i class="fas fa-trash-alt"></i> ลบวิชาในระบบ
         </button>
+
+        <a href="{% static 'ตัวอย่างและแบบฟอร์มไฟล์ Excel.xlsx' %}" download class="btn" style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display: inline-block; margin-bottom: 20px; margin-left: 10px; font-weight: bold;">
+            <i class="fas fa-file-excel"></i> โหลดฟอร์ม Excel
+        </a>
+
+        <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
 
         <hr style="border: 0; border-top: 1px solid #eee; margin-bottom: 20px;">
         
