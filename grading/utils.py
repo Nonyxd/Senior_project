@@ -117,33 +117,68 @@ def calculate_overlap(boxA, boxB):
 class GridMapper:
     def __init__(self, img_w, img_h):
         self.w = img_w; self.h = img_h
-        self.box_w = 0.032
-        self.box_h = 0.024    
-        self.step_x = 0.0414; self.step_y = 0.0253
         
-        self.c1_x, self.c1_y = 0.133, 0.303
-        self.c2_x, self.c2_y = 0.4657, 0.0250
-        self.c3_x, self.c3_y = 0.7950, 0.0250
+        # ===============================================
+        # 🟢 PART 1: ฝั่งรหัสนิสิต 
+        # ===============================================
+        self.id_cols_x = [
+            0.0820, 0.1135, 0.1420, 0.1735, 0.2020, 
+            0.2335, 0.2620, 0.2935, 0.3220, 0.3535
+        ]
+        self.id_rows_y = [
+            0.0740, 0.0930, 0.1120, 0.1310, 0.1510, 
+            0.1690, 0.1870, 0.2050, 0.2230, 0.2410
+        ]
+        self.id_box_w, self.id_box_h = 0.030, 0.020
+
+        # ===============================================
+        # 🟡 PART 2: ฝั่งข้อสอบ 100 ข้อ 
+        # ===============================================
+        self.box_w, self.box_h = 0.040, 0.023
         
-        self.id_start_x, self.id_start_y = 0.0710, 0.0650
-        self.id_step_x, self.id_step_y = 0.0310, 0.0190
-        self.id_box_w, self.id_box_h = 0.028, 0.020
+        self.ans_col1_x = [0.1420, 0.1840, 0.2240, 0.2640, 0.3030] 
+        self.ans_col2_x = [0.4660, 0.5060, 0.5470, 0.5870, 0.6260] 
+        self.ans_col3_x = [0.7880, 0.8280, 0.8690, 0.9090, 0.9480] 
+
+        self.ans_col1_y = [
+            0.3070, 0.3320, 0.3570, 0.3820, 0.4070, 0.4320, 0.4570, 0.4810, 0.5060, 0.5310, 
+            0.5550, 0.5800, 0.6050, 0.6300, 0.6540, 0.6790, 0.7030, 0.7270, 0.7520, 0.7770, 
+            0.8010, 0.8250, 0.8500, 0.8750, 0.9000, 0.9250
+        ]
+
+        self.ans_col2_y = [
+            0.0370, 0.0620, 0.0870, 0.1117, 0.1364, 0.1610, 0.1857, 0.2104, 0.2351, 0.2597, 
+            0.2844, 0.3091, 0.3338, 0.3584, 0.3831, 0.4078, 0.4325, 0.4571, 0.4818, 0.5065, 
+            0.5312, 0.5558, 0.5805, 0.6052, 0.6299, 0.6545, 0.6792, 0.7039, 0.7286, 0.7532, 
+            0.7779, 0.8026, 0.8273, 0.8519, 0.8766, 0.9013, 0.9260
+        ]
+
+        self.ans_col3_y = [
+            0.0370, 0.0620, 0.0870, 0.1117, 0.1364, 0.1610, 0.1857, 0.2104, 0.2351, 0.2597, 
+            0.2844, 0.3091, 0.3338, 0.3584, 0.3831, 0.4078, 0.4325, 0.4571, 0.4818, 0.5065, 
+            0.5312, 0.5558, 0.5805, 0.6052, 0.6299, 0.6545, 0.6792, 0.7039, 0.7286, 0.7532, 
+            0.7779, 0.8026, 0.8273, 0.8519, 0.8766, 0.9013, 0.9260
+        ]
 
     def get_question_coords(self, q_num):
-        if 1 <= q_num <= 26: sx, sy, r = self.c1_x, self.c1_y, q_num-1
-        elif 27 <= q_num <= 63: sx, sy, r = self.c2_x, self.c2_y, q_num-27
-        elif 64 <= q_num <= 100: sx, sy, r = self.c3_x, self.c3_y, q_num-64
-        else: return {}
+        if 1 <= q_num <= 26:
+            x_list = self.ans_col1_x
+            y_val = self.ans_col1_y[q_num - 1]
+        elif 27 <= q_num <= 63:
+            x_list = self.ans_col2_x
+            y_val = self.ans_col2_y[q_num - 27]
+        elif 64 <= q_num <= 100:
+            x_list = self.ans_col3_x
+            y_val = self.ans_col3_y[q_num - 64]
+        else:
+            return {}
         
-        base_x = int(sx * self.w)
-        base_y = int((sy + (r * self.step_y)) * self.h)
-        step_x = int(self.step_x * self.w)
         bw, bh = int(self.box_w * self.w), int(self.box_h * self.h)
+        by = int(y_val * self.h)
         coords = {}
-        for i, lbl in enumerate(['a','b','c','d','e']):
-            cx = base_x + (i * step_x)
-            cy = base_y
-            coords[lbl] = [cx - bw//2, cy - bh//2, cx + bw//2, cy + bh//2]
+        for i, lbl in enumerate(['a', 'b', 'c', 'd', 'e']):
+            bx = int(x_list[i] * self.w)
+            coords[lbl] = [bx - bw//2, by - bh//2, bx + bw//2, by + bh//2]
         return coords
 
     def get_student_id_coords(self):
@@ -151,8 +186,8 @@ class GridMapper:
         for col in range(10):
             id_grid[col] = {}
             for digit in range(10):
-                bx = int((self.id_start_x + (col * self.id_step_x)) * self.w)
-                by = int((self.id_start_y + (digit * self.id_step_y)) * self.h)
+                bx = int(self.id_cols_x[col] * self.w)
+                by = int(self.id_rows_y[digit] * self.h)
                 bw, bh = int(self.id_box_w * self.w), int(self.id_box_h * self.h)
                 id_grid[col][digit] = [bx - bw//2, by - bh//2, bx + bw//2, by + bh//2]
         return id_grid
