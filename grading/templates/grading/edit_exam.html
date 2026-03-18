@@ -48,7 +48,7 @@
         <div style="display: flex; gap: 20px;">
             <div class="form-group" style="flex: 1;">
                 <label>รหัสวิชา:</label>
-                <input type="text" name="subject_code" value="{{ exam.subject_code }}" required>
+                <input type="text" name="subject_code" value="{{ exam.subject_code }}" required maxlength="20" oninput="this.value = this.value.replace(/[^0-9]/g, '');">
             </div>
             <div class="form-group" style="flex: 1;">
                 <label>ห้องสอบ:</label>
@@ -73,7 +73,7 @@
 
         <div class="form-group">
             <label style="color: #d32f2f;">จำนวนข้อสอบ (Limit):</label>
-            <input type="number" name="total_questions" value="{{ exam.total_questions }}" min="1" max="100" required>
+            <input type="number" name="total_questions" id="totalQuestions" value="{{ saved.total_questions|default:100 }}" min="1" max="100" oninput="if(this.value > 100) this.value = 100; if(this.value < 1 && this.value !== '') this.value = 1; updateQuestionLimit();">
         </div>
 
         <hr>
@@ -116,51 +116,44 @@
         time_24hr: true,
     });
 
-    // 2. ฟังก์ชันซ่อน/แสดง ตารางเฉลย (Manual/Auto)
-    function toggleManual() {
-        var type = document.getElementById("keyType").value;
-        var manualDiv = document.getElementById("manualInput");
-        if (manualDiv) {
-            manualDiv.style.display = (type === "manual") ? "block" : "none";
-        }
-    }
-
-    // 3. ฟังก์ชันซ่อนข้อสอบตาม Limit (เช่น พิมพ์ 10 ก็โชว์แค่ 10 ข้อ)
+    // 2. ฟังก์ชันนี้แหละครับที่ทำหน้าที่ "จำกัดข้อไม่ให้เกิน (Limit)" (ยังอยู่ครบและทำงาน 100%!)
     function updateQuestionLimit() {
         var limitInput = document.querySelector('input[name="total_questions"]');
         if (!limitInput) return;
 
         var limit = parseInt(limitInput.value) || 100;
-        var items = document.querySelectorAll('.question-item'); // ดึงกล่องข้อสอบทั้งหมด
+        var items = document.querySelectorAll('.question-item'); 
         
         items.forEach(function(item, index) {
-            // index เริ่มที่ 0 (คือข้อ 1)
-            // ถ้า index น้อยกว่า limit ให้แสดง, ถ้ามากกว่าให้ซ่อน
             if (index < limit) {
                 item.style.display = 'block';
             } else {
                 item.style.display = 'none';
-                
-                // (Optional) เคลียร์ค่าของข้อที่ถูกซ่อน เพื่อป้องกันการส่งค่าขยะไป
                 var select = item.querySelector('select');
                 if(select) select.value = ""; 
             }
         });
     }
 
-    // --- เริ่มทำงานเมื่อโหลดหน้าเสร็จ ---
     window.onload = function() {
-        // เรียกใช้ครั้งแรก
-        toggleManual();
+        // สั่งให้ฟังก์ชันจำกัดข้อทำงานทันทีที่เปิดหน้าเว็บ
         updateQuestionLimit();
 
-        // เพิ่ม Event Listener ให้ช่อง Limit
-        // เมื่อมีการพิมพ์ หรือ เปลี่ยนตัวเลข ให้เรียกฟังก์ชัน updateQuestionLimit ทันที
+        // สั่งให้ฟังก์ชันจำกัดข้อทำงาน "ทุกครั้งที่ผู้ใช้พิมพ์เปลี่ยนตัวเลข"
         var limitInput = document.querySelector('input[name="total_questions"]');
         if(limitInput) {
             limitInput.addEventListener('input', updateQuestionLimit);
             limitInput.addEventListener('change', updateQuestionLimit);
         }
+        
+        // 🔥 ล็อกไม่ให้เลือกวันที่ย้อนหลัง (ตัวนี้จะทำงานได้ปกติแล้วเพราะไม่มี Error มาขัด) 🔥
+        let today = new Date();
+        let tzOffset = today.getTimezoneOffset() * 60000;
+        let localISOTime = (new Date(today - tzOffset)).toISOString().split('T')[0];
+
+        let examDateInput = document.querySelector('input[name="exam_date"]');
+        if (examDateInput) {
+            examDateInput.setAttribute('min', localISOTime);
+        }
     }
 </script>
-

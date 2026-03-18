@@ -15,7 +15,8 @@
             <div class="input-group input-group-sm" style="width: 250px;">
                 <span class="input-group-text"><i class="fas fa-id-card"></i></span>
                 <input type="text" id="studentIdInput" class="form-control fw-bold text-primary" 
-                       value="{{ result.student_id_ocr }}" placeholder="รหัสนิสิต">
+                       value="{{ result.student_id_ocr }}" placeholder="รหัสนิสิต" 
+                       maxlength="20" oninput="this.value = this.value.replace(/[^0-9?]/g, '');">
                 <button class="btn btn-outline-primary" type="button" onclick="updateStudentId()" title="บันทึกรหัสใหม่">
                     <i class="fas fa-save"></i>
                 </button>

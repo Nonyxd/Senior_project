@@ -146,6 +146,11 @@ def create_exam(request):
 
         context = {'existing_subjects': existing_subjects, 'range_100': range(1, 101), 'saved': request.POST}
         
+        # 🔥 เพิ่มโค้ดดักจับจำนวนข้อสอบตรงนี้ 🔥
+        if total_questions > 100 or total_questions < 1:
+            context['error'] = 'จำนวนข้อสอบต้องอยู่ระหว่าง 1 ถึง 100 ข้อเท่านั้น'
+            return render(request, 'grading/create_exam.html', context)
+
         if not subject_code or not subject_name:
             context['error'] = 'กรุณาระบุรหัสวิชาและชื่อวิชา'
             return render(request, 'grading/create_exam.html', context)
@@ -698,6 +703,7 @@ def delete_result(request, result_id):
 def edit_exam(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
     existing_subjects = Exam.objects.values('subject_code', 'subject_name').distinct()
+    
     if request.method == 'POST':
         subject_code = request.POST.get('subject_code', '').strip()
         subject_name = request.POST.get('subject_name', '').strip()
@@ -708,6 +714,14 @@ def edit_exam(request, exam_id):
         room = request.POST.get('room', '')
         total_questions = int(request.POST.get('total_questions', 100))
         key_type = request.POST.get('key_type', 'manual')
+
+        # เตรียม context ไว้สำหรับส่ง error แจ้งเตือน
+        context = {'exam': exam, 'existing_subjects': existing_subjects, 'range_100': range(1, 101)}
+
+        # 🔥 ดักจับจำนวนข้อสอบห้ามเกิน 100 ข้อ (หรือน้อยกว่า 1 ข้อ) ตรงนี้ 🔥
+        if total_questions > 100 or total_questions < 1:
+            context['error'] = 'จำนวนข้อสอบต้องอยู่ระหว่าง 1 ถึง 100 ข้อเท่านั้น'
+            return render(request, 'grading/edit_exam.html', context)
 
         key = {}
         missing_questions = []
@@ -726,7 +740,6 @@ def edit_exam(request, exam_id):
                     key[str(i)] = []
                     missing_questions.append(str(i))
         
-        context = {'exam': exam, 'existing_subjects': existing_subjects, 'range_100': range(1, 101)}
         if not subject_code or not subject_name:
             context['error'] = 'ชื่อวิชาและรหัสวิชาห้ามว่าง'
             return render(request, 'grading/edit_exam.html', context)
@@ -743,6 +756,7 @@ def edit_exam(request, exam_id):
             'answer_key': key, 'image_path': preview_path
         }
         return redirect('edit_exam_preview', exam_id=exam.id)
+        
     return render(request, 'grading/edit_exam.html', {
         'exam': exam, 'range_100': range(1, 101), 'existing_subjects': existing_subjects
     })

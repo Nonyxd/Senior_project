@@ -30,8 +30,6 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
-# ในไฟล์ omr_site/settings.py
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -106,11 +104,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
+TIME_ZONE = 'Asia/Bangkok'
 USE_I18N = True
-
 USE_TZ = True
 
 
@@ -118,6 +113,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# 🔥 เพิ่มโค้ดตรงนี้ เพื่อให้ Django ค้นหาไฟล์ในโฟลเดอร์ static หน้าโปรเจกต์ 🔥
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -129,8 +129,3 @@ MEDIA_ROOT = BASE_DIR / 'media'
 LOGIN_REDIRECT_URL = 'index'  # Login เสร็จไปหน้าแรก
 LOGOUT_REDIRECT_URL = 'login' # Logout เสร็จกลับมาหน้า Login
 LOGIN_URL = 'login'  # <--- must have for @login_required decorator
-
-TIME_ZONE = 'Asia/Bangkok'
-
-USE_I18N = True
-USE_TZ = True
