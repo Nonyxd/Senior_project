@@ -19,6 +19,7 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.db import transaction
 from django.views.decorators.http import require_POST
+from django.contrib.auth.forms import UserCreationForm # 🌟 ดึงฟอร์มสมัครสมาชิกของ Django มาใช้
 
 # --- ReportLab Imports ---
 from reportlab.pdfgen import canvas
@@ -38,6 +39,23 @@ from .utils import process_omr, generate_key_image, generate_exam_pdf
 
 from django.utils import timezone
 import datetime
+
+# ==========================================
+# 🌟 ระบบสมัครสมาชิก (Register)
+# ==========================================
+def register_user(request):
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            form.save() 
+            messages.success(request, 'สร้างบัญชีสำเร็จ! สามารถเข้าสู่ระบบได้เลย')
+            return redirect('login') 
+    else:
+        form = UserCreationForm()
+        
+    # 🌟 แก้ไขบรรทัดนี้: เติมคำว่า 'registration/' เข้าไปข้างหน้าครับ
+    return render(request, 'registration/register.html', {'form': form})
+
 
 # ==========================================
 # 0. API & Helpers
@@ -69,7 +87,9 @@ def delete_subject_api(request):
         data = json.loads(request.body)
         subject_code = data.get('subject_code')
         if not subject_code: return JsonResponse({'success': False, 'error': 'Missing Code'})
-        exams = Exam.objects.filter(subject_code=subject_code)
+        
+        # 🌟 ลบเฉพาะวิชาที่เป็นของ User ที่ล็อกอินอยู่เท่านั้น!
+        exams = Exam.objects.filter(subject_code=subject_code, user=request.user)
         count = exams.count()
         for ex in exams:
             if ex.key_image and os.path.exists(os.path.join(settings.MEDIA_ROOT, ex.key_image.name)):
@@ -85,7 +105,8 @@ def delete_subject_api(request):
 # ==========================================
 @login_required
 def index(request):
-    exams = Exam.objects.filter(is_active=True).order_by('-created_at')
+    # 🌟 ดึงข้อมูลมาโชว์เฉพาะของ "อาจารย์ที่กำลังล็อกอินอยู่" (user=request.user)
+    exams = Exam.objects.filter(is_active=True, user=request.user).order_by('-created_at')
     
     # 🔥 ดึงเวลาปัจจุบัน และแปลงให้เป็นเวลาของไทย (Asia/Bangkok)
     now = timezone.now()
@@ -132,7 +153,9 @@ def index(request):
 
 @login_required
 def create_exam(request):
-    existing_subjects = Exam.objects.values('subject_code', 'subject_name').distinct()
+    # ดึงรายวิชาที่มีอยู่แล้ว (เฉพาะของตัวเอง) มาใช้ทำ Dropdown
+    existing_subjects = Exam.objects.filter(user=request.user).values('subject_code', 'subject_name').distinct()
+    
     if request.method == 'POST':
         subject_code = request.POST.get('subject_code', '').strip()
         subject_name = request.POST.get('subject_name', '').strip()
@@ -216,6 +239,7 @@ def save_exam_confirm(request):
     if request.method == 'POST':
         # 1. สร้าง Exam
         exam = Exam.objects.create(
+            user=request.user, # 🌟 แอบใส่ชื่อคนสร้างลงไปตรงนี้! ทำให้ข้อสอบรู้ว่าใครเป็นเจ้าของ
             subject_code=data['subject_code'], subject_name=data['subject_name'],
             section=data['section'], exam_date=data['exam_date'], start_time=data['start_time'],
             duration_minutes=data['duration_minutes'], room=data['room'],
@@ -244,7 +268,8 @@ def save_exam_confirm(request):
                 except Exception as e:
                     print(f"Error processing roster: {e}")
         else:
-            previous_exam = Exam.objects.filter(subject_code=data['subject_code']).exclude(id=exam.id).order_by('-created_at').first()
+            # ดึงรายชื่อนิสิตเก่า (ต้องเป็นวิชาของอาจารย์คนนี้ด้วย)
+            previous_exam = Exam.objects.filter(subject_code=data['subject_code'], user=request.user).exclude(id=exam.id).order_by('-created_at').first()
             if previous_exam and previous_exam.enrolled_students.exists():
                 exam.enrolled_students.set(previous_exam.enrolled_students.all())
                 print(f"✅ Auto-imported {exam.enrolled_students.count()} students from previous exam.")
@@ -268,7 +293,7 @@ def save_exam_confirm(request):
 
 @login_required
 def upload_students(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกันไม่ให้อาจารย์คนอื่นแอบมาอัปโหลด
     if request.method == 'POST' and request.FILES.get('excel_file'):
         try:
             df = pd.read_excel(request.FILES['excel_file'])
@@ -292,7 +317,7 @@ def upload_students(request, exam_id):
 # ==========================================
 @login_required
 def grade_exam_view(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     
     # Upload Logic
     if request.method == 'POST' and request.FILES.get('image'):
@@ -417,7 +442,7 @@ def grade_exam_view(request, exam_id):
 # ==========================================
 @login_required
 def edit_result(request, result_id):
-    result = get_object_or_404(StudentResult, pk=result_id)
+    result = get_object_or_404(StudentResult, pk=result_id, exam__user=request.user) # 🌟 ป้องกัน
     exam = result.exam
     
     if result.status == 'OCR':
@@ -468,7 +493,7 @@ def edit_result(request, result_id):
 def api_update_result(request, result_id):
     try:
         data = json.loads(request.body)
-        result = get_object_or_404(StudentResult, pk=result_id)
+        result = get_object_or_404(StudentResult, pk=result_id, exam__user=request.user) # 🌟 ป้องกัน
         action = data.get('action')
 
         if action == 'update_score':
@@ -527,7 +552,7 @@ def generate_answer_sheet(request, exam_id):
     from reportlab.graphics.shapes import Drawing
     from reportlab.graphics import renderPDF
 
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     students = exam.enrolled_students.all()
     
     filename = f"OMR_{exam.subject_code}.pdf"
@@ -623,7 +648,7 @@ def generate_answer_sheet(request, exam_id):
 
 @login_required
 def download_exam_sheet(request, exam_id, student_id=None):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     student = get_object_or_404(Student, student_id=student_id) if student_id else None
     
     filename = f"OMR_{exam.subject_code}_{student.student_id}.pdf" if student else f"OMR_{exam.subject_code}_Master.pdf"
@@ -637,7 +662,7 @@ def download_exam_sheet(request, exam_id, student_id=None):
 
 @login_required
 def delete_exam(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     
     if request.method == 'POST':
         subject_code = exam.subject_code
@@ -666,7 +691,7 @@ def delete_exam(request, exam_id):
 
 @login_required
 def reset_exam_key(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     
     if request.method == 'POST':
         if exam.key_image:
@@ -686,7 +711,7 @@ def reset_exam_key(request, exam_id):
 
 @login_required
 def delete_result(request, result_id):
-    result = get_object_or_404(StudentResult, pk=result_id)
+    result = get_object_or_404(StudentResult, pk=result_id, exam__user=request.user) # 🌟 ป้องกัน
     exam_id = result.exam.id
     if request.method == 'POST':
         if result.original_image: 
@@ -701,8 +726,8 @@ def delete_result(request, result_id):
 
 @login_required
 def edit_exam(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    existing_subjects = Exam.objects.values('subject_code', 'subject_name').distinct()
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
+    existing_subjects = Exam.objects.filter(user=request.user).values('subject_code', 'subject_name').distinct()
     
     if request.method == 'POST':
         subject_code = request.POST.get('subject_code', '').strip()
@@ -773,7 +798,7 @@ def edit_exam_preview(request, exam_id):
 def save_edit_confirm(request, exam_id):
     data = request.session.get('temp_edit_data')
     if not data: return redirect('edit_exam', exam_id=exam_id)
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user) # 🌟 ป้องกัน
     if request.method == 'POST':
         if exam.key_image: 
             try: os.remove(os.path.join(settings.MEDIA_ROOT, exam.key_image.name))
@@ -805,7 +830,7 @@ def logout_confirm_view(request):
 @login_required
 @require_POST
 def verify_paper_status(request, result_id):
-    result = get_object_or_404(StudentResult, pk=result_id)
+    result = get_object_or_404(StudentResult, pk=result_id, exam__user=request.user) # 🌟 ป้องกัน
     exam_id = result.exam.id
     
     result.status = 'GREEN'

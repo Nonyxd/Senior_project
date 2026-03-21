@@ -69,6 +69,26 @@
         .btn-login:hover {
             background-color: #1976D2;
         }
+        
+        /* 🌟 ปุ่มสมัครสมาชิกใหม่ที่เพิ่มเข้ามา 🌟 */
+        .btn-register {
+            display: inline-block;
+            width: 100%;
+            padding: 10px;
+            background-color: #ffffff;
+            color: #2196F3;
+            border: 1px solid #2196F3;
+            border-radius: 5px;
+            font-size: 16px;
+            text-decoration: none;
+            cursor: pointer;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+        .btn-register:hover {
+            background-color: #f0f8ff;
+        }
+
         .error-msg {
             color: #d32f2f;
             background: #ffcdd2;
@@ -77,6 +97,17 @@
             margin-top: 15px;
             font-size: 14px;
         }
+        
+        /* สไตล์สำหรับกล่องข้อความแจ้งเตือน (เช่น แจ้งว่าสมัครสำเร็จ) */
+        .success-msg {
+            color: #155724;
+            background-color: #d4edda;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            border: 1px solid #c3e6cb;
+        }
     </style>
 </head>
 <body>
@@ -84,6 +115,12 @@
 <div class="login-card">
     <h2 style="color: #333;">เข้าสู่ระบบ OMR</h2>
     
+    {% if messages %}
+        {% for message in messages %}
+            <div class="success-msg">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
     <form method="post">
         {% csrf_token %}
         
@@ -106,6 +143,8 @@
 
         <button type="submit" class="btn-login">Login</button>
     </form>
+    
+    <a href="{% url 'register' %}" class="btn-register">สร้างบัญชีผู้ใช้ใหม่</a>
     
     {% if form.errors %}
         <div class="error-msg">Username หรือ Password ไม่ถูกต้อง</div>

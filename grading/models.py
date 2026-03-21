@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 from django.db.models.signals import post_delete, pre_save
 from django.dispatch import receiver
+from django.contrib.auth.models import User # 🌟 1. ดึงโมเดล User มาใช้
 
 # ==========================================
 # 1. ตารางรายชื่อนิสิต (Student)
@@ -19,6 +20,9 @@ class Student(models.Model):
 # 2. ตารางการสอบ (Exam)
 # ==========================================
 class Exam(models.Model):
+    # 🌟 2. ผูกข้อสอบกับ User (ใส่ null=True ไว้ชั่วคราว เพื่อไม่ให้ฐานข้อมูลเก่าพัง!)
+    user = models.ForeignKey(User, on_delete=models.CASCADE) 
+
     subject_code = models.CharField(max_length=20, verbose_name="รหัสวิชา")
     subject_name = models.CharField(max_length=100, verbose_name="ชื่อวิชา")
     section = models.CharField(max_length=10, default="1", verbose_name="หมู่เรียน")
@@ -93,7 +97,7 @@ def auto_delete_file_on_exam_delete(sender, instance, **kwargs):
 @receiver(post_delete, sender=StudentResult)
 def auto_delete_file_on_result_delete(sender, instance, **kwargs):
     for field in [instance.original_image, instance.graded_image, instance.debug_image]:
-        if field and os.path.isfile(field.path):
+        if field and hasattr(field, 'path') and os.path.isfile(field.path):
             try:
                 os.remove(field.path)
             except Exception as e:
