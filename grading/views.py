@@ -3,6 +3,7 @@ import uuid
 import datetime
 import urllib.parse
 import json
+import csv
 import pandas as pd 
 
 # 🔥 1. IMPORT เครื่องมือสำหรับแยกหน้า PDF 🔥
@@ -32,8 +33,7 @@ from reportlab.graphics.shapes import Drawing
 from reportlab.graphics import renderPDF
 
 # --- Models ---
-from .models import Exam, StudentResult, Student
-
+from .models import Exam, StudentResult, Student, ExamEnrollment
 # --- Utils ---
 from .utils import process_omr, generate_key_image, generate_exam_pdf
 
@@ -260,7 +260,9 @@ def save_exam_confirm(request):
                         ln = str(row.iloc[5]).strip() if len(row)>5 else str(row.get('LastName',''))
                         if sid and sid.lower()!='nan':
                             stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
-                            exam.enrolled_students.add(stu)
+                            
+                            # 🌟 แก้ไขตรงนี้: เปลี่ยนจาก .add() เป็นการสร้างลงตารางกลาง
+                            ExamEnrollment.objects.get_or_create(exam=exam, student=stu)
                     
                     exam.roster_file.name = roster_path
                     exam.save()
@@ -271,7 +273,11 @@ def save_exam_confirm(request):
             # ดึงรายชื่อนิสิตเก่า (ต้องเป็นวิชาของอาจารย์คนนี้ด้วย)
             previous_exam = Exam.objects.filter(subject_code=data['subject_code'], user=request.user).exclude(id=exam.id).order_by('-created_at').first()
             if previous_exam and previous_exam.enrolled_students.exists():
-                exam.enrolled_students.set(previous_exam.enrolled_students.all())
+                
+                # 🌟 แก้ไขตรงนี้: เปลี่ยนจาก .set() เป็นการวนลูปสร้างตารางกลาง
+                for stu in previous_exam.enrolled_students.all():
+                    ExamEnrollment.objects.get_or_create(exam=exam, student=stu)
+                    
                 print(f"✅ Auto-imported {exam.enrolled_students.count()} students from previous exam.")
         
         # เคลียร์ Session
@@ -303,7 +309,10 @@ def upload_students(request, exam_id):
                 fn = str(row.iloc[1]).strip()
                 ln = str(row.iloc[2]).strip()
                 stu, _ = Student.objects.get_or_create(student_id=sid, defaults={'first_name':fn, 'last_name':ln})
-                exam.enrolled_students.add(stu)
+                
+                # 🌟 แก้ไขตรงนี้: เปลี่ยนจาก .add() เป็นการสร้างลงตารางกลาง
+                ExamEnrollment.objects.get_or_create(exam=exam, student=stu)
+                
                 c += 1
             messages.success(request, f"เพิ่มนิสิต {c} คน")
             return redirect('grade_exam', exam_id=exam.id)
@@ -822,6 +831,54 @@ def save_edit_confirm(request, exam_id):
         except: pass
     del request.session['temp_edit_data']
     return redirect('edit_exam', exam_id=exam_id)
+
+# ==========================================
+# 9. Download / Export Results (โหลดผลคะแนน)
+# ==========================================
+@login_required
+def download_results(request, exam_id):
+    # 🌟 1. ดึงข้อมูลวิชา และตรวจสอบสิทธิ์ว่าเป็นข้อสอบของอาจารย์ท่านนี้จริงๆ
+    exam = get_object_or_404(Exam, pk=exam_id, user=request.user)
+    
+    # 🌟 2. ดึงผลการตรวจของวิชานี้ทั้งหมด เรียงตามรหัสนิสิต
+    results = StudentResult.objects.filter(exam=exam).select_related('student').order_by('student_id_ocr')
+    
+    # 🌟 3. ตั้งค่า HttpResponse ให้เป็นไฟล์ CSV แนบไป
+    filename = f"exam_results_{exam.subject_code}.csv"
+    # ใช้ utf-8-sig เพื่อให้เปิดใน Microsoft Excel แล้วภาษาไทยไม่เป็นภาษาต่างดาว
+    response = HttpResponse(content_type='text/csv; charset=utf-8-sig') 
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    
+    # 🌟 4. เขียนข้อมูลลงไฟล์ CSV
+    writer = csv.writer(response)
+    # เขียนหัวตาราง แถวแรก
+    writer.writerow(['ลำดับ', 'รหัสนิสิต', 'ชื่อ-นามสกุล', 'คะแนนที่ได้', 'สถานะการตรวจ']) 
+    
+    for index, res in enumerate(results, start=1):
+        # ดึงชื่อ-นามสกุล (ถ้ามีในระบบ)
+        if res.student:
+            full_name = f"{res.student.first_name} {res.student.last_name}"
+        else:
+            full_name = "(ไม่พบข้อมูลนิสิตในระบบ)"
+            
+        # แปลงสถานะสีให้เข้าใจง่ายขึ้น
+        if res.status == 'GREEN':
+            status_text = "ยืนยันแล้ว (ปกติ)"
+        elif res.status == 'RED':
+            status_text = "มีปัญหา (รอตรวจมือ)"
+        else:
+            status_text = res.status
+            
+        # เขียนข้อมูลนิสิตแต่ละคนลงไปทีละแถว
+        writer.writerow([
+            index, 
+            res.student_id_ocr, 
+            full_name, 
+            res.score, 
+            status_text
+        ])
+        
+    return response
 
 @login_required
 def logout_confirm_view(request):

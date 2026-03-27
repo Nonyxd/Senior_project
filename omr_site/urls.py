@@ -20,6 +20,7 @@ urlpatterns = [
     path('', views.index, name='index'),
     path('create/', views.create_exam, name='create_exam'),
     path('save_exam/', views.save_exam_confirm, name='save_exam_confirm'),
+    path('export/<int:exam_id>/', views.download_results, name='download_results'),
     
     # --- API Helper ---
     # 1. อ่าน Excel (Auto Fill)

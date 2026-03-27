@@ -20,7 +20,7 @@ class Student(models.Model):
 # 2. ตารางการสอบ (Exam)
 # ==========================================
 class Exam(models.Model):
-    # 🌟 2. ผูกข้อสอบกับ User (ใส่ null=True ไว้ชั่วคราว เพื่อไม่ให้ฐานข้อมูลเก่าพัง!)
+    # 🌟 2. ผูกข้อสอบกับ User
     user = models.ForeignKey(User, on_delete=models.CASCADE) 
 
     subject_code = models.CharField(max_length=20, verbose_name="รหัสวิชา")
@@ -36,15 +36,39 @@ class Exam(models.Model):
     answer_key = models.JSONField(default=dict, verbose_name="เฉลย (JSON)")
     key_image = models.ImageField(upload_to='uploads/keys/', blank=True, null=True)
     
-    # 🔥 [เพิ่ม] เก็บไฟล์ Excel รายชื่อนิสิต เพื่อให้ลบได้ภายหลัง
+    # 🔥 เก็บไฟล์ Excel รายชื่อนิสิต เพื่อให้ลบได้ภายหลัง
     roster_file = models.FileField(upload_to='uploads/rosters/', blank=True, null=True, verbose_name="ไฟล์รายชื่อนิสิต")
 
-    enrolled_students = models.ManyToManyField(Student, blank=True, related_name='exams')
+    # 🌟🌟 แก้ไข: เพิ่ม through='ExamEnrollment' เพื่อใช้ตารางกลางที่เราสร้างเอง
+    enrolled_students = models.ManyToManyField(
+        Student, 
+        through='ExamEnrollment', 
+        blank=True, 
+        related_name='exams'
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.subject_code} {self.subject_name} (Sec {self.section})"
+
+# ==========================================
+# 🌟 ตารางกลาง (Intermediate Table) สำหรับเก็บข้อมูลการลงทะเบียนสอบ
+# ==========================================
+class ExamEnrollment(models.Model):
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE)
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    
+    # ฟิลด์เสริมในอนาคต
+    enrolled_at = models.DateTimeField(auto_now_add=True, verbose_name="วันที่เพิ่มรายชื่อ")
+    status = models.CharField(max_length=20, default='ACTIVE', verbose_name="สถานะ") 
+    
+    class Meta:
+        # ป้องกันไม่ให้อาจารย์เผลอเพิ่มชื่อเด็กคนเดิมซ้ำในวิชาเดียวกัน
+        unique_together = ('exam', 'student')
+
+    def __str__(self):
+        return f"{self.student.student_id} enrolled in {self.exam.subject_code}"
 
 # ==========================================
 # 3. ตารางผลการตรวจ (StudentResult)
@@ -66,7 +90,7 @@ class StudentResult(models.Model):
     graded_image = models.ImageField(upload_to='uploads/graded/', blank=True, null=True)
     debug_image = models.ImageField(upload_to='uploads/graded/', blank=True, null=True)
 
-    # 🚩 2. อัปเดตฟิลด์ status ให้ใช้ Default เป็น RED (เดี๋ยว views.py จะเปลี่ยนเป็น BLUE ให้เองถ้าไม่เจอ Error)
+    # 🚩 2. อัปเดตฟิลด์ status ให้ใช้ Default เป็น RED
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RED')
     
     results_data = models.JSONField(default=dict, blank=True)
@@ -78,7 +102,6 @@ class StudentResult(models.Model):
     
 # ==========================================
 # 🔥 SIGNALS: จัดการลบไฟล์ออกจากเครื่องอัตโนมัติ
-# (ใส่ไว้ล่างสุดของไฟล์ models.py)
 # ==========================================
 
 # 1. เมื่อลบ Exam -> ให้ลบรูปเฉลย และ ไฟล์ Excel

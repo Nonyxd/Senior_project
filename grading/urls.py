@@ -28,6 +28,9 @@ urlpatterns = [
     path('grade/<int:exam_id>/', views.grade_exam_view, name='grade_exam'),
     path('exam/<int:exam_id>/upload_students/', views.upload_students, name='upload_students'),
     
+    # 🌟🌟 เพิ่มบรรทัดนี้: สำหรับดาวน์โหลดไฟล์ CSV ผลคะแนน 🌟🌟
+    path('export/<int:exam_id>/', views.download_results, name='download_results'),
+
     # --- Edit Result (Individual) ---
     path('result/<int:result_id>/edit/', views.edit_result, name='edit_result'),
     path('api/update_result/<int:result_id>/', views.api_update_result, name='api_update_result'),
