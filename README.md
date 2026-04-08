@@ -1,5 +1,13 @@
 # AI-Powered OMR System (Automated Exam Grading System)
 
+## Live Demo (Hugging Face Spaces)
+The system is currently deployed and running live on Hugging Face Spaces. You can access the web application directly via your browser without any installation required.
+* **Access the System here:** [https://nonyxd-nonu.hf.space](https://nonyxd-nonu.hf.space)
+
+*(Note: If the system has been inactive for a while, it may take 1-2 minutes to wake up the server upon your first visit.)*
+
+---
+
 ## Introduction
 This project involves the development of a web application system for grading multiple-choice answer sheets using Optical Mark Recognition (OMR). The primary objective is to reduce the time and workload associated with exam evaluation for instructors. The system is designed to accept various data file formats, automatically process and grade the submissions, and summarize the results into statistical reports.
 
@@ -24,9 +32,10 @@ All exam results are stored in an SQLite3 database. The system can generate indi
 * **Document Processing:** PyMuPDF, ReportLab
 * **Data Manipulation:** Pandas
 * **Database:** SQLite3
+* **Deployment:** Docker, Hugging Face Spaces, WhiteNoise (for static files)
 
-## Download and Installation for General Users (Standalone Version)
-For instructors or individuals who wish to test the system without configuring an environment or installing Python, a pre-compiled, ready-to-use executable file is available for immediate use.
+## Offline Standalone Version (Windows)
+For instructors or individuals who wish to test the system offline without configuring an environment or installing Python, a pre-compiled, ready-to-use executable file is available for local machine use.
 
 **Download Link:** [https://drive.google.com/file/d/1kH091QiSHVMACPrj19HSLKrPdh7GfjvF/view?usp=sharing]
 
@@ -37,8 +46,17 @@ For instructors or individuals who wish to test the system without configuring a
 4. The program will initialize a local server and automatically open the default web browser to the login page within 10 to 15 seconds.
 
 ---
+---
 
 # ระบบตรวจกระดาษคำตอบอัตโนมัติด้วยปัญญาประดิษฐ์ (AI-Powered OMR System)
+
+## ทดลองใช้งานจริงบนระบบคลาวด์ (Live Demo)
+ปัจจุบันระบบได้ถูกนำขึ้นไปรันบนเซิร์ฟเวอร์ของ Hugging Face Spaces เรียบร้อยแล้ว ผู้ใช้งานสามารถเข้าถึงระบบผ่านเว็บบราวเซอร์ได้ทันทีโดยไม่ต้องติดตั้งโปรแกรมใดๆ
+* **ลิงก์เข้าใช้งานระบบ:** [https://nonyxd-nonu.hf.space](https://nonyxd-nonu.hf.space)
+
+*(หมายเหตุ: หากไม่มีผู้ใช้งานระบบเป็นระยะเวลาหนึ่ง เซิร์ฟเวอร์อาจเข้าสู่โหมดพักการทำงาน ซึ่งการเข้าใช้งานครั้งแรกหลังจากนั้นอาจใช้เวลาโหลดประมาณ 1-2 นาทีเพื่อเริ่มระบบใหม่)*
+
+---
 
 ## บทนำ
 โปรเจกต์นี้เป็นการพัฒนาระบบเว็บแอปพลิเคชันสำหรับการตรวจกระดาษคำตอบแบบปรนัย (Optical Mark Recognition - OMR) โดยมีวัตถุประสงค์เพื่อลดระยะเวลาและภาระงานในการประเมินผลการสอบ ระบบถูกออกแบบมาให้สามารถรับไฟล์ข้อมูลได้หลากหลายรูปแบบ และสามารถประมวลผลให้คะแนนได้แบบอัตโนมัติ พร้อมทั้งสรุปผลลัพธ์ออกมาเป็นรายงานทางสถิติ
@@ -64,11 +82,12 @@ For instructors or individuals who wish to test the system without configuring a
 * **Document Processing:** PyMuPDF, ReportLab
 * **Data Manipulation:** Pandas
 * **Database:** SQLite3
+* **Deployment:** Docker, Hugging Face Spaces, WhiteNoise
 
-## การดาวน์โหลดและติดตั้งสำหรับผู้ใช้งานทั่วไป (Standalone Version)
-สำหรับอาจารย์ผู้สอนหรือผู้ที่ต้องการทดลองใช้งานระบบโดยไม่ต้องตั้งค่า Environment หรือติดตั้ง Python สามารถดาวน์โหลดไฟล์โปรแกรมสำเร็จรูปไปเปิดใช้งานได้ทันที
+## การดาวน์โหลดโปรแกรมสำหรับใช้งานแบบออฟไลน์ (Standalone Version)
+สำหรับอาจารย์ผู้สอนหรือผู้ที่ต้องการนำระบบไปใช้งานในเครื่องคอมพิวเตอร์ส่วนตัว (Local Machine) โดยไม่ต้องพึ่งพาอินเทอร์เน็ต สามารถดาวน์โหลดไฟล์โปรแกรมสำเร็จรูปไปเปิดใช้งานได้ทันที
 
-**ลิงก์ดาวน์โหลด:** [https://drive.google.com/file/d/1kH091QiSHVMACPrj19HSLKrPdh7GfjvF/view?usp=sharing]
+**ลิงก์ดาวน์โหลด (Google Drive):** [https://drive.google.com/file/d/1kH091QiSHVMACPrj19HSLKrPdh7GfjvF/view?usp=sharing]
 
 **คำแนะนำในการใช้งาน:**
 1. ดาวน์โหลดไฟล์บีบอัด (.zip) จากลิงก์ด้านบน
